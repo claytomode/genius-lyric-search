@@ -12,11 +12,8 @@ import { matchQuery } from "./match";
 
 const GENIUS = "https://genius.com/api";
 const HEADERS = {
-  Accept: "application/json,text/plain,*/*",
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  Referer: "https://genius.com/",
-  Origin: "https://genius.com",
+  Accept: "application/json",
+  "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)",
 };
 
 const GENIUS_PER_PAGE = 20;

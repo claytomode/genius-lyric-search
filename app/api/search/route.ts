@@ -5,7 +5,6 @@ import { asArtistId, asDate, clampPage, clip } from "@/lib/validate";
 import type { ArtistRole, SortMode } from "@/lib/types";
 
 export const maxDuration = 15;
-export const runtime = "edge";
 
 function asRole(value: string | null): ArtistRole {
   if (value === "lead" || value === "featured" || value === "both") return value;

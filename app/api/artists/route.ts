@@ -3,8 +3,6 @@ import { searchArtists } from "@/lib/genius";
 import { cachedJson, jsonError, tooMany } from "@/lib/http";
 import { clip } from "@/lib/validate";
 
-export const runtime = "edge";
-
 export async function GET(request: NextRequest) {
   const limited = tooMany(request, "artists", 30);
   if (limited) return limited;
