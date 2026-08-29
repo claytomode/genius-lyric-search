@@ -22,4 +22,27 @@ describe("matchQuery", () => {
     const parsed = parseQuery('"Sober for a week"');
     expect(matchQuery(parsed.ast, snippet).ok).toBe(true);
   });
+
+  it("picks the tight consecutive line, not an earlier leftover word", () => {
+    const lyrics = [
+      "Started",
+      "(Zombie on the track)",
+      "Started from the bottom now we're here",
+      "Started from the bottom now my whole team here",
+    ].join("\n");
+    const parsed = parseQuery("started from the bottom");
+    const match = matchQuery(parsed.ast, lyrics);
+    expect(match.ok).toBe(true);
+    const painted = lyrics.slice(match.ranges[0].start, match.ranges[match.ranges.length - 1].end);
+    expect(painted).toBe("Started from the bottom");
+  });
+
+  it("ignores case and punctuation", () => {
+    const parsed = parseQuery("can't decide");
+    const line = "I just Can't decide, tonight";
+    const match = matchQuery(parsed.ast, line);
+    expect(match.ok).toBe(true);
+    const bits = match.ranges.map((range) => line.slice(range.start, range.end));
+    expect(bits.join(" ")).toBe("Can't decide");
+  });
 });

@@ -12,7 +12,7 @@ export type MatchResult = {
 type Token = { word: string; start: number; end: number };
 
 function normalize(word: string) {
-  return word.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  return word.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 export function splitTokens(text: string): Token[] {
@@ -62,6 +62,13 @@ function termHits(tokens: Token[], value: string, fuzz: number): Token[] {
   return hits;
 }
 
+function tokenMatches(token: Token, word: string, fuzz: number) {
+  const hay = normalize(token.word);
+  if (!hay) return false;
+  if (hay === word) return true;
+  return fuzz > 0 && levenshtein(word, hay, fuzz) <= fuzz;
+}
+
 function windowContains(
   tokens: Token[],
   words: string[],
@@ -70,21 +77,23 @@ function windowContains(
 ): { ranges: HighlightRange[]; span: number } | null {
   if (!words.length) return null;
   const needed = words.map(normalize).filter(Boolean);
+  if (!needed.length) return null;
+
+  let best: { ranges: HighlightRange[]; span: number } | null = null;
   for (let i = 0; i < tokens.length; i++) {
-    const ranges: HighlightRange[] = [];
-    let cursor = i;
+    if (!tokenMatches(tokens[i], needed[0], fuzz)) continue;
+    const ranges: HighlightRange[] = [{ start: tokens[i].start, end: tokens[i].end }];
+    let cursor = i + 1;
     let ok = true;
-    for (const word of needed) {
+    for (let w = 1; w < needed.length; w++) {
+      const limit = slop === 0 ? cursor + 1 : Math.min(tokens.length, cursor + slop + 1);
       let found = -1;
-      const limit = Math.min(tokens.length, cursor + 1 + slop);
-      for (let j = cursor; j < (cursor === i ? tokens.length : limit); j++) {
-        const hay = normalize(tokens[j].word);
-        if (hay === word || (fuzz > 0 && levenshtein(word, hay, fuzz) <= fuzz)) {
+      for (let j = cursor; j < limit; j++) {
+        if (tokenMatches(tokens[j], needed[w], fuzz)) {
           found = j;
           ranges.push({ start: tokens[j].start, end: tokens[j].end });
           break;
         }
-        if (cursor !== i && j >= limit - 1) break;
       }
       if (found === -1) {
         ok = false;
@@ -92,12 +101,11 @@ function windowContains(
       }
       cursor = found + 1;
     }
-    if (ok && ranges.length) {
-      const span = ranges[ranges.length - 1].end - ranges[0].start;
-      return { ranges, span };
-    }
+    if (!ok) continue;
+    const span = ranges[ranges.length - 1].end - ranges[0].start;
+    if (!best || span < best.span) best = { ranges, span };
   }
-  return null;
+  return best;
 }
 
 type Eval = { ok: boolean; score: number; kind: MatchKind; ranges: HighlightRange[]; fuzzy: boolean };
@@ -145,19 +153,16 @@ function evaluateNode(node: QueryNode, tokens: Token[], autoFuzz: number): Eval 
       if (node.implicit) {
         const ok = children.every((child) => child.ok);
         if (!ok) return { ok: false, score: 0, kind: "any", ranges: [], fuzzy };
-        const inOrder = windowContains(
-          tokens,
-          node.children.flatMap((child) =>
-            child.type === "term" ? [child.value] : child.type === "phrase" ? child.words : [],
-          ),
-          12,
-          autoFuzz,
+        const words = node.children.flatMap((child) =>
+          child.type === "term" ? [child.value] : child.type === "phrase" ? child.words : [],
         );
-        const score = children.reduce((sum, child) => sum + child.score, 0) + (inOrder ? 25 : 0);
+        const consecutive = windowContains(tokens, words, 0, autoFuzz);
+        const inOrder = consecutive ?? windowContains(tokens, words, 12, autoFuzz);
+        const score = children.reduce((sum, child) => sum + child.score, 0) + (consecutive ? 30 : inOrder ? 25 : 0);
         return {
           ok: true,
           score,
-          kind: inOrder ? "phrase" : "all",
+          kind: consecutive || inOrder ? "phrase" : "all",
           ranges: inOrder?.ranges ?? ranges,
           fuzzy,
         };
