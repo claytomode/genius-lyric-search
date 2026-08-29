@@ -21,6 +21,7 @@ const card = Inter_Tight({
 export const metadata: Metadata = {
   title: "Lyric Search",
   description: "Search Genius lyrics by line, including verses on songs they only feature on.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

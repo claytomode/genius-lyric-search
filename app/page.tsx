@@ -8,7 +8,7 @@ export default function Home() {
       <HomeSearch />
       <p className="foot">
         Snippets from Genius search. Open a song to read the full lyrics.{" "}
-        <a href="https://genius.com" target="_blank" rel="noreferrer">
+        <a href="https://genius.com" target="_blank" rel="noopener noreferrer">
           genius.com
         </a>
       </p>

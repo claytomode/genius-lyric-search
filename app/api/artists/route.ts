@@ -1,23 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { searchArtists } from "@/lib/genius";
+import { cachedJson, jsonError, tooMany } from "@/lib/http";
+import { clip } from "@/lib/validate";
 
 export async function GET(request: NextRequest) {
-  const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
-  if (q.length < 1) {
-    return NextResponse.json({ artists: [] });
-  }
+  const limited = tooMany(request, "artists", 30);
+  if (limited) return limited;
+
+  const q = clip(request.nextUrl.searchParams.get("q")?.trim() ?? "", 80);
+  if (q.length < 1) return cachedJson({ artists: [] }, 60);
 
   try {
     const artists = await searchArtists(q);
-    return NextResponse.json({
-      artists: artists.map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-        image: artist.image_url || artist.header_image_url || null,
-      })),
-    });
+    return cachedJson(
+      {
+        artists: artists.map((artist) => ({
+          id: artist.id,
+          name: artist.name,
+          image: artist.image_url || artist.header_image_url || null,
+        })),
+      },
+      300,
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Artist search failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return jsonError("Artist search failed", 502, error);
   }
 }

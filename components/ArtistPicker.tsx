@@ -22,19 +22,28 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/artists?q=${encodeURIComponent(query)}`);
+        const res = await fetch(`/api/artists?q=${encodeURIComponent(query)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
         const data = (await res.json()) as { artists?: PickedArtist[] };
         setResults(data.artists ?? []);
         setOpen(true);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 220);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query, value]);
 
   useEffect(() => {
@@ -50,7 +59,7 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
       <div className="artist-chip">
         {value.image ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={value.image} alt="" />
+          <img src={value.image} alt="" width={28} height={28} />
         ) : null}
         <span>{value.name}</span>
         <button type="button" aria-label="Clear artist" onClick={() => onChange(null)}>
@@ -73,9 +82,11 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
         onFocus={() => results.length && setOpen(true)}
         autoComplete="off"
         aria-label="Filter by artist"
+        aria-expanded={open}
+        aria-haspopup="menu"
       />
       {open && (results.length > 0 || loading) ? (
-        <ul className="artist-menu" role="listbox">
+        <ul className="artist-menu">
           {loading && results.length === 0 ? <li className="muted">Searching...</li> : null}
           {results.map((artist) => (
             <li key={artist.id}>
@@ -89,7 +100,7 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
               >
                 {artist.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={artist.image} alt="" />
+                  <img src={artist.image} alt="" width={28} height={28} />
                 ) : (
                   <span className="artist-fallback">{artist.name.slice(0, 1)}</span>
                 )}

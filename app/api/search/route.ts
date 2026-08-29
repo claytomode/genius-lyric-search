@@ -1,6 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { listArtistSongs, searchLyrics } from "@/lib/genius";
+import { jsonError, noStore, tooMany } from "@/lib/http";
+import { asArtistId, asDate, clampPage, clip } from "@/lib/validate";
 import type { ArtistRole, SortMode } from "@/lib/types";
+
+export const maxDuration = 15;
 
 function asRole(value: string | null): ArtistRole {
   if (value === "lead" || value === "featured" || value === "both") return value;
@@ -13,14 +17,17 @@ function asSort(value: string | null): SortMode {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = tooMany(request, "search", 10);
+  if (limited) return limited;
+
   const { searchParams } = request.nextUrl;
-  const q = searchParams.get("q") ?? "";
-  const artistId = Number(searchParams.get("artist") ?? "");
+  const q = clip(searchParams.get("q") ?? "", 200);
+  const artistId = asArtistId(searchParams.get("artist"));
   const role = asRole(searchParams.get("role"));
   const sort = asSort(searchParams.get("sort"));
-  const startDate = searchParams.get("from") || undefined;
-  const endDate = searchParams.get("to") || undefined;
-  const fromPage = Number(searchParams.get("fromPage") ?? "1") || 1;
+  const startDate = asDate(searchParams.get("from"));
+  const endDate = asDate(searchParams.get("to"));
+  const fromPage = clampPage(searchParams.get("fromPage"));
 
   try {
     if (!q.trim() && artistId) {
@@ -32,11 +39,11 @@ export async function GET(request: NextRequest) {
         endDate,
         fromPage,
       });
-      return NextResponse.json(data);
+      return noStore(data);
     }
 
     if (!q.trim()) {
-      return NextResponse.json({
+      return noStore({
         results: [],
         nextFromPage: null,
         scannedPages: 0,
@@ -48,16 +55,15 @@ export async function GET(request: NextRequest) {
 
     const data = await searchLyrics({
       q,
-      artistId: Number.isFinite(artistId) && artistId > 0 ? artistId : undefined,
+      artistId,
       role,
       sort,
       startDate,
       endDate,
       fromPage,
     });
-    return NextResponse.json(data);
+    return noStore(data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Search failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return jsonError("Search failed", 502, error);
   }
 }

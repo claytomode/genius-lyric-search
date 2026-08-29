@@ -30,7 +30,7 @@ function readFuzz(input: string, start: number): { fuzz: number; next: number } 
     digits += input[i];
     i += 1;
   }
-  return { fuzz: digits ? Number(digits) : 1, next: i };
+  return { fuzz: Math.min(digits ? Number(digits) : 1, 2), next: i };
 }
 
 export function tokenize(input: string): Token[] {

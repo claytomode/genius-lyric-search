@@ -13,17 +13,20 @@ import { matchQuery } from "./match";
 const GENIUS = "https://genius.com/api";
 const HEADERS = {
   Accept: "application/json",
-  "User-Agent": "LyricSearch/1.0",
+  "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)",
 };
 
-export const RESULT_PAGE_SIZE = 10;
 const GENIUS_PER_PAGE = 20;
-const MAX_SCAN_PAGES = 12;
+const MAX_SCAN_PAGES = 4;
 
 type GeniusEnvelope<T> = {
   meta: { status: number };
   response: T;
 };
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function geniusGet<T>(path: string, params: Record<string, string | number | undefined>) {
   const url = new URL(`${GENIUS}/${path}`);
@@ -33,20 +36,34 @@ async function geniusGet<T>(path: string, params: Record<string, string | number
     }
   }
 
-  const res = await fetch(url, {
-    headers: HEADERS,
-    next: { revalidate: 60 },
-  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await fetch(url, {
+      headers: HEADERS,
+      redirect: "error",
+      signal: AbortSignal.timeout(8000),
+      cache: "force-cache",
+      next: { revalidate: 60 },
+    });
 
-  if (!res.ok) {
-    throw new Error(`Genius request failed (${res.status})`);
+    if (res.status === 429 || res.status === 503) {
+      if (attempt === 0) {
+        const wait = Number(res.headers.get("retry-after"));
+        await sleep(Number.isFinite(wait) && wait > 0 ? Math.min(wait * 1000, 2000) : 500);
+        continue;
+      }
+      throw new Error("Genius request failed");
+    }
+
+    if (!res.ok) throw new Error("Genius request failed");
+
+    const body = (await res.json()) as GeniusEnvelope<T>;
+    if (body.meta?.status && body.meta.status >= 400) {
+      throw new Error("Genius request failed");
+    }
+    return body.response;
   }
 
-  const body = (await res.json()) as GeniusEnvelope<T>;
-  if (body.meta?.status && body.meta.status >= 400) {
-    throw new Error(`Genius request failed (${body.meta.status})`);
-  }
-  return body.response;
+  throw new Error("Genius request failed");
 }
 
 export async function searchArtists(q: string): Promise<GeniusArtist[]> {
@@ -67,7 +84,7 @@ function isJunkTitle(title: string) {
   return /tracklist|album art\b|credits$/i.test(title);
 }
 
-export function roleOnSong(song: GeniusSong, artistId: number): "lead" | "featured" | null {
+function roleOnSong(song: GeniusSong, artistId: number): "lead" | "featured" | null {
   const primaries = song.primary_artists?.length
     ? song.primary_artists
     : song.primary_artist
@@ -227,7 +244,9 @@ async function collectFromQueries(
     while (pagesForQuery < cap) {
       const batchSize = opts.artistId ? Math.min(4, cap - pagesForQuery) : 1;
       const responses = await Promise.all(
-        Array.from({ length: batchSize }, (_, i) => lyricPage(query, page + i)),
+        Array.from({ length: batchSize }, (_, i) =>
+          lyricPage(query, page + i).catch(() => ({ hits: [] as GeniusLyricHit[], nextPage: null })),
+        ),
       );
       for (const response of responses) {
         scannedPages += 1;
@@ -265,19 +284,23 @@ async function searchArtistSongTitles(
   const collected: SearchResult[] = [];
   let page = 1;
   for (let scanned = 0; scanned < 3; scanned += 1) {
-    const response = await geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs/search`, {
-      q,
-      per_page: 20,
-      page,
-    });
-    for (const song of response.songs ?? []) {
-      if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
-      const credited = roleOnSong(song, artistId);
-      if (!credited || !matchesRole(credited, role)) continue;
-      collected.push(toResult(song, credited));
+    try {
+      const response = await geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs/search`, {
+        q,
+        per_page: 20,
+        page,
+      });
+      for (const song of response.songs ?? []) {
+        if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
+        const credited = roleOnSong(song, artistId);
+        if (!credited || !matchesRole(credited, role)) continue;
+        collected.push(toResult(song, credited));
+      }
+      if (!response.next_page) break;
+      page = response.next_page;
+    } catch {
+      break;
     }
-    if (!response.next_page) break;
-    page = response.next_page;
   }
   return collected;
 }
@@ -307,8 +330,8 @@ export async function searchLyrics(opts: {
   const fetchQs = geniusQueries(parsed.ast)
     .map((item) => item.trim())
     .filter(Boolean);
-  const queries = fetchQs.length ? fetchQs : [query];
-  const fromPage = Math.max(1, opts.fromPage ?? 1);
+  const queries = (fetchQs.length ? fetchQs : [query]).slice(0, 2);
+  const fromPage = Math.max(1, Math.min(40, opts.fromPage ?? 1));
 
   const [lyricHits, catalogHits] = await Promise.all([
     collectFromQueries(queries, {

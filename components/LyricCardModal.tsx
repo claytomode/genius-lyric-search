@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { LyricCard } from "./LyricCard";
-import { selectedLines, type LyricRow } from "@/lib/excerpt";
+import { selectedLines, linesFromSnippet, type LyricRow } from "@/lib/excerpt";
 import { photosFromResult, proxyArt, type CardPhoto } from "@/lib/cardPhotos";
 import type { SearchResult } from "@/lib/types";
 
@@ -66,6 +66,8 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
       : result.primaryArtist;
   const cardRef = useRef<HTMLDivElement>(null);
   const lyricsRef = useRef<HTMLDivElement>(null);
+  const studioRef = useRef<HTMLDivElement>(null);
+  const mouseUpRef = useRef<(() => void) | null>(null);
   const [rows, setRows] = useState<LyricRow[]>([]);
   const [quote, setQuote] = useState<string[]>([]);
   const [photos, setPhotos] = useState<CardPhoto[]>(() => photosFromResult(result));
@@ -77,11 +79,41 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
   const proxiedArt = proxyArt(chosen?.url ?? null);
 
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+    const root = studioRef.current;
+    const previous = document.activeElement as HTMLElement | null;
+
+    function focusable() {
+      return Array.from(
+        root?.querySelectorAll<HTMLElement>("button, [href], input, select, textarea") ?? [],
+      ).filter((el) => !el.hasAttribute("disabled"));
     }
+
+    focusable()[0]?.focus();
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !root) return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previous?.focus?.();
+    };
   }, [onClose]);
 
   useEffect(() => {
@@ -98,6 +130,16 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
         const next = data.rows ?? [];
         setRows(next);
         setQuote(selectedLines(next, data.start ?? 0, data.end ?? 0));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const next = linesFromSnippet(result.snippet ?? "", 12).map((text, id) => ({
+          id,
+          kind: "line" as const,
+          text,
+        }));
+        setRows(next);
+        setQuote(selectedLines(next, 0, Math.min(3, next.length - 1)));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -138,12 +180,21 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
   }
 
   function startHighlight() {
+    if (mouseUpRef.current) window.removeEventListener("mouseup", mouseUpRef.current);
     const onUp = () => {
       captureHighlight();
       window.removeEventListener("mouseup", onUp);
+      mouseUpRef.current = null;
     };
+    mouseUpRef.current = onUp;
     window.addEventListener("mouseup", onUp);
   }
+
+  useEffect(() => {
+    return () => {
+      if (mouseUpRef.current) window.removeEventListener("mouseup", mouseUpRef.current);
+    };
+  }, []);
 
   async function download() {
     if (!cardRef.current) return;
@@ -169,12 +220,19 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
   }
 
   return (
-    <div className="card-overlay" role="dialog" aria-modal="true" aria-label="Lyric card">
+    <div className="card-overlay" role="dialog" aria-modal="true" aria-labelledby="card-title">
       <button className="card-backdrop" type="button" aria-label="Close" onClick={onClose} />
-      <div className="card-studio">
+      <div className="card-studio" ref={studioRef}>
         <div className="card-picker">
+          <h2 id="card-title" className="sr-only">
+            Lyric card
+          </h2>
           <p className="card-picker-hint">Drag to highlight the lyrics you want on the card.</p>
-          {loading ? <p className="status">Loading lyrics...</p> : null}
+          {loading ? (
+            <p className="status" role="status" aria-busy="true">
+              Loading lyrics...
+            </p>
+          ) : null}
           <div
             ref={lyricsRef}
             className="card-lines"

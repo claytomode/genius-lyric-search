@@ -1,28 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowedImageType, safeGeniusImageUrl } from "@/lib/art";
+import { jsonError, tooMany } from "@/lib/http";
 
-const ALLOWED = new Set(["images.genius.com", "images.rapgenius.com"]);
+const MAX_BYTES = 5_000_000;
 
 export async function GET(request: NextRequest) {
-  const raw = request.nextUrl.searchParams.get("u") ?? "";
-  let target: URL;
+  const limited = tooMany(request, "art", 60);
+  if (limited) return limited;
+
+  const target = safeGeniusImageUrl(request.nextUrl.searchParams.get("u") ?? "");
+  if (!target) return jsonError("Invalid image URL", 400);
+
   try {
-    target = new URL(raw);
-  } catch {
-    return NextResponse.json({ error: "Invalid image URL" }, { status: 400 });
-  }
-  if (!ALLOWED.has(target.hostname)) {
-    return NextResponse.json({ error: "Host not allowed" }, { status: 400 });
-  }
+    const res = await fetch(target, {
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+      cache: "force-cache",
+      next: { revalidate: 86400 },
+    });
+    const type = allowedImageType(res.headers.get("content-type"));
+    if (!res.ok || !type) return jsonError("Image fetch failed", 502);
 
-  const res = await fetch(target, { next: { revalidate: 86400 } });
-  if (!res.ok || !res.body) {
-    return NextResponse.json({ error: "Image fetch failed" }, { status: 502 });
-  }
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength > MAX_BYTES) return jsonError("Image too large", 413);
 
-  return new NextResponse(res.body, {
-    headers: {
-      "Content-Type": res.headers.get("content-type") || "image/jpeg",
-      "Cache-Control": "public, max-age=86400",
-    },
-  });
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": type,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  } catch (error) {
+    return jsonError("Image fetch failed", 502, error);
+  }
 }

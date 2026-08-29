@@ -1,17 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { songCardPhotos } from "@/lib/genius";
+import { cachedJson, jsonError, tooMany } from "@/lib/http";
+import { asArtistId } from "@/lib/validate";
 
 export async function GET(request: NextRequest) {
-  const id = Number(request.nextUrl.searchParams.get("id") ?? "");
-  if (!Number.isFinite(id) || id <= 0) {
-    return NextResponse.json({ error: "Invalid song id" }, { status: 400 });
-  }
+  const limited = tooMany(request, "photos", 20);
+  if (limited) return limited;
+
+  const id = asArtistId(request.nextUrl.searchParams.get("id"));
+  if (!id) return jsonError("Invalid song id", 400);
 
   try {
     const photos = await songCardPhotos(id);
-    return NextResponse.json({ photos });
+    return cachedJson({ photos }, 3600);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Photo fetch failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    return jsonError("Photo fetch failed", 502, error);
   }
 }

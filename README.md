@@ -26,3 +26,10 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Lyric cards
 
 On a result with a snippet, **Lyric card**. Highlight the lines on the left (Genius-yellow on the lyrics, white type on the cover). Pick album/cover vs artist photo, then download.
+
+## Host it
+
+[Vercel Hobby](https://vercel.com) is the free host that actually runs this (Next.js route handlers). Import [`claytomode/genius-lyric-search`](https://github.com/claytomode/genius-lyric-search), leave the defaults, add no env vars. Share the production `*.vercel.app` URL with friends.
+
+Hobby cannot password-lock production. That is fine: there are no accounts or stored lyrics. If the URL gets passed around, Genius rate limits are the thing that will hurt, not Vercel’s free quota.
+

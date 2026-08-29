@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ResultCard } from "./ResultCard";
 import { SearchForm, type SearchValues } from "./SearchForm";
@@ -54,6 +54,7 @@ export function ResultsView() {
   const [error, setError] = useState<string | null>(null);
   const [card, setCard] = useState<SearchResult | null>(null);
   const [relaxed, setRelaxed] = useState(false);
+  const requestId = useRef(0);
 
   const queryString = useMemo(() => {
     const next = new URLSearchParams();
@@ -77,7 +78,9 @@ export function ResultsView() {
 
   useEffect(() => {
     let cancelled = false;
+    requestId.current += 1;
     setLoading(true);
+    setResults([]);
     setError(null);
     load()
       .then((data) => {
@@ -86,8 +89,8 @@ export function ResultsView() {
         setNextFromPage(data.nextFromPage);
         setRelaxed(Boolean(data.relaxed));
       })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+      .catch(() => {
+        if (!cancelled) setError("Search failed");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -99,18 +102,20 @@ export function ResultsView() {
 
   async function loadMore() {
     if (!nextFromPage) return;
+    const id = requestId.current;
     setLoadingMore(true);
     try {
       const data = await load(nextFromPage);
+      if (id !== requestId.current) return;
       setResults((prev) => {
         const seen = new Set(prev.map((r) => r.id));
         return [...prev, ...data.results.filter((r) => !seen.has(r.id))];
       });
       setNextFromPage(data.nextFromPage);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
+    } catch {
+      if (id === requestId.current) setError("Search failed");
     } finally {
-      setLoadingMore(false);
+      if (id === requestId.current) setLoadingMore(false);
     }
   }
 
@@ -140,10 +145,18 @@ export function ResultsView() {
         <p className="hint">No exact hits — showing near misses (one-character typos).</p>
       ) : null}
 
-      {loading ? <p className="status">Searching Genius...</p> : null}
-      {error ? <p className="status error">{error}</p> : null}
+      {loading ? (
+        <p className="status" role="status">
+          Searching Genius...
+        </p>
+      ) : null}
+      {error ? (
+        <p className="status error" role="status">
+          {error}
+        </p>
+      ) : null}
       {!loading && !error && results.length === 0 ? (
-        <p className="status">
+        <p className="status" role="status">
           No matches in the pages Genius returned. Try a more specific line
           {artistName ? `, or drop the ${artistName} filter` : ""}.
         </p>

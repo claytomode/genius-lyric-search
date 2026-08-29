@@ -1,7 +1,5 @@
-import type { HighlightRange } from "./types";
+import type { HighlightRange, MatchKind } from "./types";
 import type { QueryNode } from "./query";
-
-export type MatchKind = "phrase" | "proximity" | "all" | "any" | "fuzzy" | "near";
 
 export type MatchResult = {
   ok: boolean;

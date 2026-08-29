@@ -55,7 +55,7 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
           placeholder="A line you remember..."
           value={values.q}
           onChange={(e) => onChange({ ...values, q: e.target.value })}
-          autoFocus={!compact}
+          aria-label="Lyric line"
         />
         <button className="search-btn" type="submit" disabled={!canSubmit}>
           Search
@@ -71,6 +71,7 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
           <span>Credit</span>
           <select
             value={values.role}
+            disabled={!values.artist}
             onChange={(e) => onChange({ ...values, role: e.target.value as ArtistRole })}
           >
             <option value="both">Lead or featured</option>
@@ -107,6 +108,7 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
               <input
                 type="radio"
                 name="sort"
+                value={value}
                 checked={values.sort === value}
                 onChange={() => onChange({ ...values, sort: value })}
               />
