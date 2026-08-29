@@ -12,8 +12,11 @@ import { matchQuery } from "./match";
 
 const GENIUS = "https://genius.com/api";
 const HEADERS = {
-  Accept: "application/json",
-  "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)",
+  Accept: "application/json,text/plain,*/*",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  Referer: "https://genius.com/",
+  Origin: "https://genius.com",
 };
 
 const GENIUS_PER_PAGE = 20;
@@ -39,10 +42,8 @@ async function geniusGet<T>(path: string, params: Record<string, string | number
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await fetch(url, {
       headers: HEADERS,
-      redirect: "error",
       signal: AbortSignal.timeout(8000),
-      cache: "force-cache",
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
 
     if (res.status === 429 || res.status === 503) {
@@ -51,10 +52,13 @@ async function geniusGet<T>(path: string, params: Record<string, string | number
         await sleep(Number.isFinite(wait) && wait > 0 ? Math.min(wait * 1000, 2000) : 500);
         continue;
       }
-      throw new Error("Genius request failed");
+      throw new Error(`Genius request failed (${res.status})`);
     }
 
-    if (!res.ok) throw new Error("Genius request failed");
+    const type = res.headers.get("content-type") ?? "";
+    if (!res.ok || !type.includes("json")) {
+      throw new Error(`Genius request failed (${res.status})`);
+    }
 
     const body = (await res.json()) as GeniusEnvelope<T>;
     if (body.meta?.status && body.meta.status >= 400) {
@@ -244,9 +248,7 @@ async function collectFromQueries(
     while (pagesForQuery < cap) {
       const batchSize = opts.artistId ? Math.min(4, cap - pagesForQuery) : 1;
       const responses = await Promise.all(
-        Array.from({ length: batchSize }, (_, i) =>
-          lyricPage(query, page + i).catch(() => ({ hits: [] as GeniusLyricHit[], nextPage: null })),
-        ),
+        Array.from({ length: batchSize }, (_, i) => lyricPage(query, page + i)),
       );
       for (const response of responses) {
         scannedPages += 1;

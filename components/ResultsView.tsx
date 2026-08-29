@@ -90,7 +90,7 @@ export function ResultsView() {
         setRelaxed(Boolean(data.relaxed));
       })
       .catch(() => {
-        if (!cancelled) setError("Search failed");
+        if (!cancelled) setError("Can't reach Genius from this server.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -113,7 +113,7 @@ export function ResultsView() {
       });
       setNextFromPage(data.nextFromPage);
     } catch {
-      if (id === requestId.current) setError("Search failed");
+      if (id === requestId.current) setError("Can't reach Genius from this server.");
     } finally {
       if (id === requestId.current) setLoadingMore(false);
     }

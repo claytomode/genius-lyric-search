@@ -3,6 +3,8 @@ import { songCardPhotos } from "@/lib/genius";
 import { cachedJson, jsonError, tooMany } from "@/lib/http";
 import { asArtistId } from "@/lib/validate";
 
+export const runtime = "edge";
+
 export async function GET(request: NextRequest) {
   const limited = tooMany(request, "photos", 20);
   if (limited) return limited;
