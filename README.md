@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Genius Lyric Search
 
-## Getting Started
+A small lyric search for me and my friends, because Genius’s own search is bad at this.
 
-First, run the development server:
+Genius will look up a line you remember, but there is **no artist filter**. Type an artist name into the box and it searches for that word *in the lyrics*. Features are also filed under the lead artist, so you cannot ask “Drake’s verse on this Travis song” without drowning in tracklists.
+
+This app searches Genius lyric snippets, then lets you filter by artist as **lead or featured**. Open a result for the full lyrics on Genius. You can also make a Genius-style lyric card (highlight the lines, pick album or artist art, download a PNG).
+
+It does **not** scrape or store full Genius lyrics. Search snippets come from Genius’s public search API. Card excerpts come from [lrclib](https://lrclib.net/) when a match exists. No Genius API token.
+
+## Run it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Search tips
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- A line you remember, then optionally pick an artist.
+- **Lead or featured** / **By them** / **Featured on** — features are the point.
+- Quotes, `AND` / `OR` / `NOT`, and `term~1` fuzzy matching work if you want them.
 
-## Learn More
+## Lyric cards
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+On a result with a snippet, **Lyric card**. Highlight the lines on the left (Genius-yellow on the lyrics, white type on the cover). Pick album/cover vs artist photo, then download.
