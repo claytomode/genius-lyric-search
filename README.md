@@ -12,3 +12,14 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+Locally it uses Genius's public website search. No token.
+
+Cloud hosts (including Vercel) get blocked on that API. Create a client at [genius.com/api-clients](https://genius.com/api-clients) and set:
+
+```
+GENIUS_API=official
+GENIUS_ACCESS_TOKEN=your_client_access_token
+```
+
+`GENIUS_API=web` forces the website API even if a token is set.

@@ -9,8 +9,8 @@ import type {
 import { photosFromSong, type CardPhoto } from "./cardPhotos";
 import { formatQuery, geniusQueries, parseQuery, queryFeatures } from "./query";
 import { matchQuery } from "./match";
+import { resolveGeniusApi } from "./geniusApi";
 
-const GENIUS = "https://genius.com/api";
 const HEADERS = {
   Accept: "application/json",
   "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)",
@@ -29,16 +29,20 @@ function sleep(ms: number) {
 }
 
 async function geniusGet<T>(path: string, params: Record<string, string | number | undefined>) {
-  const url = new URL(`${GENIUS}/${path}`);
+  const { origin, token } = resolveGeniusApi();
+  const url = new URL(`${origin}/${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
     }
   }
 
+  const headers: Record<string, string> = { ...HEADERS };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await fetch(url, {
-      headers: HEADERS,
+      headers,
       signal: AbortSignal.timeout(8000),
       cache: "no-store",
     });
@@ -68,6 +72,23 @@ async function geniusGet<T>(path: string, params: Record<string, string | number
 }
 
 export async function searchArtists(q: string): Promise<GeniusArtist[]> {
+  const { mode } = resolveGeniusApi();
+  if (mode === "official") {
+    const response = await geniusGet<{ hits: { result: GeniusSong }[] }>("search", {
+      q,
+      per_page: 8,
+    });
+    const artists: GeniusArtist[] = [];
+    const seen = new Set<number>();
+    for (const hit of response.hits ?? []) {
+      const artist = hit.result?.primary_artist;
+      if (!artist?.id || seen.has(artist.id)) continue;
+      seen.add(artist.id);
+      artists.push(artist);
+    }
+    return artists;
+  }
+
   const response = await geniusGet<{
     sections: { hits: { result: GeniusArtist }[] }[];
   }>("search/artist", { q, per_page: 8 });
@@ -155,7 +176,8 @@ function applyDateAndSort(
 }
 
 type LyricSearchResponse = {
-  sections: { hits: GeniusLyricHit[]; next_page?: number | null }[];
+  hits?: GeniusLyricHit[];
+  sections?: { hits: GeniusLyricHit[]; next_page?: number | null }[];
   next_page?: number | null;
 };
 
@@ -167,7 +189,7 @@ async function lyricPage(q: string, page: number) {
   });
   const section = response.sections?.[0];
   return {
-    hits: section?.hits ?? [],
+    hits: section?.hits ?? response.hits ?? [],
     nextPage: section?.next_page ?? response.next_page ?? null,
   };
 }
