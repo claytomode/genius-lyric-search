@@ -63,10 +63,13 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
       </div>
 
       <div className="filter-row">
-        <ArtistPicker
-          value={values.artist}
-          onChange={(artist) => onChange({ ...values, artist })}
-        />
+        <div className="filter">
+          <span>Artist</span>
+          <ArtistPicker
+            value={values.artist}
+            onChange={(artist) => onChange({ ...values, artist })}
+          />
+        </div>
         <label className="filter">
           <span>Credit</span>
           <select

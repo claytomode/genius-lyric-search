@@ -6,12 +6,14 @@ export default function Home() {
       <h1 className="brand">Lyric Search</h1>
       <p className="tagline">Search Engine for Genius Lyrics</p>
       <HomeSearch />
-      <p className="foot">
-        Snippets from Genius search. Open a song to read the full lyrics.{" "}
+      <footer className="foot">
+        Genius&apos;s native search is too fuzzy and has no artist filter, so I made
+        this. Full songs on{" "}
         <a href="https://genius.com" target="_blank" rel="noopener noreferrer">
           genius.com
         </a>
-      </p>
+        .
+      </footer>
     </main>
   );
 }

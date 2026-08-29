@@ -58,11 +58,11 @@ select {
 }
 
 .home {
-  min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18vh 16px 64px;
+  padding: 18vh 16px 0;
 }
 
 .brand {
@@ -129,7 +129,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .filter {
@@ -159,9 +159,11 @@ select {
 .sort {
   display: flex;
   gap: 12px;
+  align-items: center;
+  height: 36px;
   border: 0;
   margin: 0;
-  padding: 14px 0 0;
+  padding: 0;
 }
 
 .sort label {
@@ -173,11 +175,11 @@ select {
 
 .artist-picker {
   position: relative;
-  min-width: 180px;
+  width: 180px;
 }
 
 .artist-picker input {
-  width: 180px;
+  width: 100%;
 }
 
 .artist-menu {
@@ -229,10 +231,19 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 180px;
   height: 36px;
   padding: 0 4px 0 6px;
   background: var(--white);
   border: 1px solid var(--ink);
+}
+
+.artist-chip span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .artist-chip button {
@@ -322,17 +333,26 @@ select {
 }
 
 .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   margin: 4px 0 8px;
   color: var(--muted);
   font-size: 14px;
+  line-height: 1.3;
 }
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
   padding: 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  line-height: 1;
   text-transform: uppercase;
   color: var(--white);
 }
@@ -391,9 +411,10 @@ select {
   position: relative;
   z-index: 1;
   width: min(860px, 100%);
-  max-height: min(92vh, 740px);
+  height: min(92vh, 740px);
+  overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   gap: 16px;
   background: var(--paper);
   padding: 16px;
@@ -404,6 +425,7 @@ select {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .card-picker-hint {
@@ -415,10 +437,11 @@ select {
 .card-lines {
   overflow: auto;
   flex: 1;
-  min-height: 280px;
+  min-height: 0;
   padding: 8px 0 20px;
   background: #fff;
   border: 1px solid var(--line);
+  overscroll-behavior: contain;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -462,6 +485,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .genius-card {
@@ -542,12 +567,14 @@ select {
 @media (max-width: 760px) {
   .card-studio {
     grid-template-columns: 1fr;
+    height: auto;
+    max-height: 92vh;
     overflow: auto;
   }
 
   .card-lines {
     min-height: 160px;
-    max-height: 200px;
+    max-height: 40vh;
   }
 }
 
@@ -596,7 +623,17 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: center;
+  align-items: flex-end;
+}
+
+.card-actions .filter {
+  gap: 4px;
+}
+
+.card-actions select {
+  width: 7.5rem;
+  border-color: var(--ink);
+  border-radius: 0;
 }
 
 .card-actions button,
@@ -635,9 +672,16 @@ select {
 }
 
 .foot {
-  margin-top: 48px;
+  align-self: stretch;
+  margin-top: auto;
+  margin-left: -16px;
+  margin-right: -16px;
+  padding: 18px 16px 22px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
 }
 
 .foot a {
