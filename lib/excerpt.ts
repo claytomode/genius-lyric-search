@@ -12,7 +12,7 @@ export function linesFromSnippet(snippet: string, limit = 4): string[] {
     .slice(0, limit);
 }
 
-export function rowsFromLyrics(lyrics: string): LyricRow[] {
+export function rowsFromLyrics(lyrics: string, limit = 80): LyricRow[] {
   const rows: LyricRow[] = [];
   for (const raw of lyrics.replace(/\r/g, "").split("\n")) {
     const text = raw.trim();
@@ -22,6 +22,7 @@ export function rowsFromLyrics(lyrics: string): LyricRow[] {
       kind: /^\[[^\]]+\]$/.test(text) ? "header" : "line",
       text,
     });
+    if (rows.length >= limit) break;
   }
   return rows;
 }
@@ -53,27 +54,4 @@ export function selectedLines(rows: LyricRow[], start: number, end: number): str
     .filter((row) => row.kind === "line" && row.id >= lo && row.id <= hi)
     .map((row) => row.text)
     .slice(0, 8);
-}
-
-type LrcHit = {
-  trackName?: string;
-  artistName?: string;
-  plainLyrics?: string | null;
-};
-
-export async function lyricsFromLrclib(opts: {
-  title: string;
-  artist: string;
-}): Promise<string | null> {
-  const url = new URL("https://lrclib.net/api/search");
-  url.searchParams.set("track_name", opts.title);
-  url.searchParams.set("artist_name", opts.artist);
-
-  const res = await fetch(url, {
-    headers: { "User-Agent": "LyricSearch/1.0 (https://github.com)" },
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) return null;
-  const hits = (await res.json()) as LrcHit[];
-  return hits.find((hit) => hit.plainLyrics)?.plainLyrics ?? null;
 }

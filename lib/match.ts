@@ -145,8 +145,8 @@ function evaluateNode(node: QueryNode, tokens: Token[], autoFuzz: number): Eval 
       const ranges = mergeRanges(children.flatMap((child) => child.ranges));
       const fuzzy = children.some((child) => child.fuzzy);
       if (node.implicit) {
-        const matched = children.filter((child) => child.ok);
-        if (!matched.length) return { ok: false, score: 0, kind: "any", ranges: [], fuzzy };
+        const ok = children.every((child) => child.ok);
+        if (!ok) return { ok: false, score: 0, kind: "any", ranges: [], fuzzy };
         const inOrder = windowContains(
           tokens,
           node.children.flatMap((child) =>
@@ -155,11 +155,11 @@ function evaluateNode(node: QueryNode, tokens: Token[], autoFuzz: number): Eval 
           12,
           autoFuzz,
         );
-        const score = matched.reduce((sum, child) => sum + child.score, 0) + (inOrder ? 25 : 0);
+        const score = children.reduce((sum, child) => sum + child.score, 0) + (inOrder ? 25 : 0);
         return {
           ok: true,
           score,
-          kind: inOrder ? "phrase" : matched.length === children.length ? "all" : "any",
+          kind: inOrder ? "phrase" : "all",
           ranges: inOrder?.ranges ?? ranges,
           fuzzy,
         };

@@ -1,12 +1,14 @@
 import type { HighlightRange } from "@/lib/types";
 
-function mergeRanges(ranges: HighlightRange[]) {
+function mergeRanges(text: string, ranges: HighlightRange[]) {
   const sorted = [...ranges].filter((r) => r.end > r.start).sort((a, b) => a.start - b.start);
   const merged: HighlightRange[] = [];
   for (const range of sorted) {
     const last = merged[merged.length - 1];
     if (last && range.start <= last.end) {
       last.end = Math.max(last.end, range.end);
+    } else if (last && text.slice(last.end, range.start).trim() === "") {
+      last.end = range.end;
     } else {
       merged.push({ ...range });
     }
@@ -21,7 +23,7 @@ export function HighlightedSnippet({
   text: string;
   ranges: HighlightRange[];
 }) {
-  const merged = mergeRanges(ranges);
+  const merged = mergeRanges(text, ranges);
   const parts: { text: string; hit: boolean }[] = [];
   let cursor = 0;
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { lyricsFromLrclib, rowsFromLyrics, suggestSelection, linesFromSnippet } from "@/lib/excerpt";
+import { lyricsFromLrclib } from "@/lib/lrclib";
+import { rowsFromLyrics, suggestSelection, linesFromSnippet } from "@/lib/excerpt";
 
 export async function GET(request: NextRequest) {
   const title = request.nextUrl.searchParams.get("title")?.trim() ?? "";
