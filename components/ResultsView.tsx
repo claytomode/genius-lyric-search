@@ -168,7 +168,7 @@ export function ResultsView() {
             key={result.id}
             result={result}
             artistName={artistName}
-            onCard={result.snippet ? () => setCard(result) : undefined}
+            onCard={() => setCard(result)}
           />
         ))}
       </div>

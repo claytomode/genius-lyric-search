@@ -10,6 +10,7 @@ import { photosFromSong, type CardPhoto } from "./cardPhotos";
 import { formatQuery, geniusQueries, parseQuery, queryFeatures } from "./query";
 import { matchQuery } from "./match";
 import { resolveGeniusApi } from "./geniusApi";
+import { lyricsFromLrclib } from "./lrclib";
 
 const HEADERS = {
   Accept: "application/json",
@@ -182,6 +183,20 @@ type LyricSearchResponse = {
 };
 
 async function lyricPage(q: string, page: number) {
+  const { mode } = resolveGeniusApi();
+  if (mode === "official") {
+    const response = await geniusGet<{
+      hits?: { result: GeniusSong }[];
+      next_page?: number | null;
+    }>("search", { q, per_page: GENIUS_PER_PAGE, page });
+    return {
+      hits: (response.hits ?? [])
+        .filter((hit) => hit.result)
+        .map((hit) => ({ highlights: [] as GeniusLyricHit["highlights"], result: hit.result })),
+      nextPage: response.next_page ?? null,
+    };
+  }
+
   const response = await geniusGet<LyricSearchResponse>("search/lyric", {
     q,
     per_page: GENIUS_PER_PAGE,
@@ -192,6 +207,50 @@ async function lyricPage(q: string, page: number) {
     hits: section?.hits ?? response.hits ?? [],
     nextPage: section?.next_page ?? response.next_page ?? null,
   };
+}
+
+function snippetFromLyrics(
+  lyrics: string,
+  parsed: ReturnType<typeof parseQuery>,
+): { snippet: string; ranges: { start: number; end: number }[] } {
+  const hit = matchQuery(parsed.ast, lyrics, 0);
+  if (hit.ok && hit.ranges.length) {
+    const first = Math.min(...hit.ranges.map((range) => range.start));
+    const last = Math.max(...hit.ranges.map((range) => range.end));
+    let start = lyrics.lastIndexOf("\n", Math.max(0, first - 60));
+    start = start < 0 ? 0 : start + 1;
+    let end = lyrics.indexOf("\n", last + 80);
+    if (end < 0) end = lyrics.length;
+    const snippet = lyrics.slice(start, end).trim();
+    return {
+      snippet,
+      ranges: hit.ranges
+        .map((range) => ({ start: range.start - start, end: range.end - start }))
+        .filter((range) => range.end > 0 && range.start < snippet.length),
+    };
+  }
+  const lines = lyrics
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\[[^\]]+\]$/.test(line));
+  return { snippet: lines.slice(0, 6).join("\n"), ranges: [] };
+}
+
+async function fillSnippetsFromLrclib(
+  results: SearchResult[],
+  parsed: ReturnType<typeof parseQuery>,
+) {
+  for (const result of results.slice(0, 8)) {
+    if (result.snippet) continue;
+    const lyrics = await lyricsFromLrclib({
+      title: result.title,
+      artist: result.primaryArtist,
+    });
+    if (!lyrics) continue;
+    const cut = snippetFromLyrics(lyrics, parsed);
+    result.snippet = cut.snippet;
+    result.ranges = cut.ranges;
+  }
 }
 
 function decorateResult(
@@ -374,6 +433,10 @@ export async function searchLyrics(opts: {
     collected.push(result);
   }
   const { scannedPages, nextFromPage } = lyricHits;
+
+  if (resolveGeniusApi().mode === "official") {
+    await fillSnippetsFromLrclib(collected, parsed);
+  }
 
   const decorate = (autoFuzz: number) =>
     collected

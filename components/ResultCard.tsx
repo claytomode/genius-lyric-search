@@ -72,7 +72,7 @@ export function ResultCard({
         {result.snippet ? (
           <HighlightedSnippet text={result.snippet} ranges={result.ranges} />
         ) : null}
-        {result.snippet && onCard ? (
+        {onCard ? (
           <button className="card-btn" type="button" onClick={onCard}>
             Lyric card
           </button>
