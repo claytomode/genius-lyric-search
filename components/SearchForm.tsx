@@ -39,7 +39,7 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
       params.set("name", values.artist.name);
     }
     if (values.role !== "both") params.set("role", values.role);
-    if (values.sort !== "match") params.set("sort", values.sort);
+    if (values.sort !== "views") params.set("sort", values.sort);
     if (values.from) params.set("from", values.from);
     if (values.to) params.set("to", values.to);
     router.push(`/search?${params.toString()}`);
@@ -102,6 +102,7 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
           <legend className="sr-only">Sort</legend>
           {(
             [
+              ["views", "Most views"],
               ["match", "Best match"],
               ["newest", "Newest"],
               ["oldest", "Oldest"],

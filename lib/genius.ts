@@ -19,12 +19,12 @@ const HEADERS = {
 };
 
 const GENIUS_PER_PAGE = 20;
-const CATALOG_PAGES = 2;
+const CATALOG_PAGES = 1;
 const CATALOG_DEEPER_PAGES = 30;
 const CATALOG_LYRIC_CONCURRENCY = 24;
-const CATALOG_FIRST_LIMIT = 6;
+const CATALOG_FIRST_LIMIT = 4;
 const CATALOG_DEEPER_LIMIT = 20;
-const CATALOG_FIRST_BUDGET_MS = 8_000;
+const CATALOG_FIRST_BUDGET_MS = 5_000;
 const CATALOG_DEEPER_BUDGET_MS = 20_000;
 
 type GeniusEnvelope<T> = {
@@ -53,11 +53,12 @@ async function geniusGet<T>(
   const official = url.hostname === "api.genius.com";
   const headers: Record<string, string> = { ...HEADERS };
   if (token && official) headers.Authorization = `Bearer ${token}`;
+  if (!official) headers.Referer = "https://genius.com/";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await fetch(url, {
       headers,
-      signal: AbortSignal.timeout(official ? 8000 : 3000),
+      signal: AbortSignal.timeout(8000),
       cache: "no-store",
     });
 
@@ -88,15 +89,6 @@ async function geniusGet<T>(
 export async function searchArtists(q: string): Promise<GeniusArtist[]> {
   const { mode } = resolveGeniusApi();
   if (mode === "official") {
-    try {
-      const response = await geniusGet<{
-        sections: { hits: { result: GeniusArtist }[] }[];
-      }>("search/artist", { q, per_page: 8 }, "https://genius.com/api");
-      const artists = (response.sections?.[0]?.hits ?? []).map((hit) => hit.result);
-      if (artists.length) return artists;
-    } catch {
-      // Fall through to official song search.
-    }
     const response = await geniusGet<{ hits: { result: GeniusSong }[] }>("search", {
       q,
       per_page: 8,
@@ -204,6 +196,8 @@ function applyDateAndSort(
     filtered.sort((a, b) => (b.releaseTimestamp ?? 0) - (a.releaseTimestamp ?? 0));
   } else if (sort === "oldest") {
     filtered.sort((a, b) => (a.releaseTimestamp ?? Infinity) - (b.releaseTimestamp ?? Infinity));
+  } else if (sort === "views") {
+    filtered.sort((a, b) => (b.pageviews ?? -1) - (a.pageviews ?? -1));
   } else {
     filtered.sort((a, b) => b.score - a.score || (b.pageviews ?? 0) - (a.pageviews ?? 0));
   }
@@ -227,16 +221,7 @@ function lyricHitsFromResponse(response: LyricSearchResponse) {
 async function lyricPage(q: string, page: number) {
   const { mode } = resolveGeniusApi();
   if (mode === "official") {
-    try {
-      const response = await geniusGet<LyricSearchResponse>(
-        "search/lyric",
-        { q, per_page: GENIUS_PER_PAGE, page },
-        "https://genius.com/api",
-      );
-      return lyricHitsFromResponse(response);
-    } catch {
-      return { hits: [] as GeniusLyricHit[], nextPage: null };
-    }
+    return { hits: [] as GeniusLyricHit[], nextPage: null };
   }
 
   const response = await geniusGet<LyricSearchResponse>("search/lyric", {
@@ -325,9 +310,7 @@ function decorateResult(
 ): SearchResult | null {
   const snippet = result.snippet ?? "";
   const snippetMatch = matchQuery(parsed.ast, snippet, autoFuzz);
-  const titleHit = matchQuery(parsed.ast, result.title, autoFuzz);
   const popularity = Math.log10((result.pageviews ?? 0) + 1);
-  const titleBoost = titleHit.ok ? 50 : 0;
 
   if (!snippetMatch.ok) {
     if (parsed.explicit) {
@@ -336,7 +319,7 @@ function decorateResult(
       if (!result.ranges.length) return null;
       return {
         ...result,
-        score: 18 + popularity + titleBoost,
+        score: 18 + popularity,
         matchKind: features.phrase ? "phrase" : features.proximity ? "proximity" : "any",
         nearMiss: autoFuzz > 0,
       };
@@ -346,7 +329,7 @@ function decorateResult(
 
   return {
     ...result,
-    score: snippetMatch.score + popularity + titleBoost,
+    score: snippetMatch.score + popularity,
     matchKind: snippetMatch.kind,
     nearMiss: snippetMatch.kind === "near" || snippetMatch.fuzzy,
     ranges: snippetMatch.ranges.length ? snippetMatch.ranges : result.ranges,
@@ -637,44 +620,57 @@ export async function searchLyrics(opts: {
 
   const catalogPage1 =
     opts.artistId && fromPage === 1 ? fetchArtistSongPage(opts.artistId, 1) : null;
+  const official = resolveGeniusApi().mode === "official";
+  const catalogPromise =
+    opts.artistId && fromPage === 1 && official
+      ? searchArtistCatalog(opts.artistId, parsed, opts.role, new Set(), {
+          firstPage: catalogPage1 ?? undefined,
+          maxPages: CATALOG_PAGES,
+          matchLimit: CATALOG_FIRST_LIMIT,
+          deadline: Date.now() + CATALOG_FIRST_BUDGET_MS,
+        })
+      : null;
 
-  const titlePagePromise =
-    fromPage === 1 ? songSearchPage(queries[0], 1) : Promise.resolve({ hits: [] as GeniusLyricHit[], nextPage: null });
-  const [lyricHits, titlePage] = await Promise.all([
-    collectFromQueries(queries, {
-      artistId: opts.artistId,
-      role: opts.role,
-      fromPage,
-      maxPages: 1,
-    }),
-    titlePagePromise,
-  ]);
+  const lyricPromise = official
+    ? Promise.resolve({
+        collected: [] as SearchResult[],
+        scannedPages: 0,
+        nextFromPage: null as number | null,
+      })
+    : collectFromQueries(queries, {
+        artistId: opts.artistId,
+        role: opts.role,
+        fromPage,
+        maxPages: 1,
+      });
+
+  const [lyricHits, titlePage] = await Promise.all([lyricPromise, songSearchPage(queries[0], fromPage)]);
 
   const lyricVerified = await verifyGeniusHits(lyricHits.collected, parsed, 20);
-  let titleExtras: SearchResult[] = [];
-  if (fromPage === 1) {
-    const seen = new Set(lyricVerified.map((result) => result.id));
-    for (const hit of titlePage.hits) {
-      const result = keepHit(hit, opts.artistId, opts.role);
-      if (!result || seen.has(result.id)) continue;
-      seen.add(result.id);
-      titleExtras.push(result);
-    }
+  const seen = new Set(lyricVerified.map((result) => result.id));
+  const titleExtras: SearchResult[] = [];
+  for (const hit of titlePage.hits) {
+    const result = keepHit(hit, opts.artistId, opts.role);
+    if (!result || seen.has(result.id)) continue;
+    seen.add(result.id);
+    titleExtras.push(result);
   }
   const titleVerified = await verifyGeniusHits(titleExtras, parsed, 8);
   let collected = [...titleVerified, ...lyricVerified];
   let scannedPages = lyricHits.scannedPages;
-  let nextFromPage = opts.artistId ? 1 : lyricHits.nextFromPage;
+  let nextFromPage = opts.artistId ? 1 : lyricHits.nextFromPage ?? titlePage.nextPage;
 
   if (opts.artistId && fromPage === 1 && collected.length < 4) {
     const skip = new Set(collected.map((result) => result.id));
-    const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, skip, {
-      firstPage: catalogPage1 ?? undefined,
-      maxPages: CATALOG_PAGES,
-      matchLimit: CATALOG_FIRST_LIMIT,
-      deadline: Date.now() + CATALOG_FIRST_BUDGET_MS,
-    });
-    collected = [...collected, ...catalog.results];
+    const catalog = catalogPromise
+      ? await catalogPromise
+      : await searchArtistCatalog(opts.artistId, parsed, opts.role, skip, {
+          firstPage: catalogPage1 ?? undefined,
+          maxPages: CATALOG_PAGES,
+          matchLimit: CATALOG_FIRST_LIMIT,
+          deadline: Date.now() + CATALOG_FIRST_BUDGET_MS,
+        });
+    collected = [...collected, ...catalog.results.filter((result) => !skip.has(result.id))];
     scannedPages += 1;
     nextFromPage = catalog.nextPage;
   }

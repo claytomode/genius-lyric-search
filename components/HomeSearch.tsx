@@ -22,7 +22,7 @@ export function HomeSearch() {
     q: "",
     artist: null,
     role: "both",
-    sort: "match",
+    sort: "views",
     from: "",
     to: "",
   });

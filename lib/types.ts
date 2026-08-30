@@ -1,5 +1,5 @@
 export type ArtistRole = "both" | "lead" | "featured";
-export type SortMode = "match" | "newest" | "oldest";
+export type SortMode = "views" | "match" | "newest" | "oldest";
 
 export type GeniusArtist = {
   id: number;

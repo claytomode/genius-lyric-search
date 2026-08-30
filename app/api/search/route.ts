@@ -12,8 +12,8 @@ function asRole(value: string | null): ArtistRole {
 }
 
 function asSort(value: string | null): SortMode {
-  if (value === "newest" || value === "oldest" || value === "match") return value;
-  return "match";
+  if (value === "newest" || value === "oldest" || value === "match" || value === "views") return value;
+  return "views";
 }
 
 export async function GET(request: NextRequest) {
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
         endDate,
         fromPage,
       });
-      return skipIds.length ? noStore(data) : cachedJson(data, 60);
+      return skipIds.length ? noStore(data) : cachedJson(data, 60, 60);
     }
 
     if (!q.trim()) {
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       fromPage,
       skipIds,
     });
-    return skipIds.length ? noStore(data) : cachedJson(data, 45);
+    return skipIds.length ? noStore(data) : cachedJson(data, 45, 45);
   } catch (error) {
     if (q.trim() && artistId && skipIds.length) {
       console.error("Search failed", error);

@@ -14,8 +14,8 @@ function roleFromParam(value: string | null): ArtistRole {
 }
 
 function sortFromParam(value: string | null): SortMode {
-  if (value === "newest" || value === "oldest" || value === "match") return value;
-  return "match";
+  if (value === "newest" || value === "oldest" || value === "match" || value === "views") return value;
+  return "views";
 }
 
 export function ResultsView() {
@@ -61,7 +61,7 @@ export function ResultsView() {
     if (q) next.set("q", q);
     if (artistId) next.set("artist", artistId);
     if (role !== "both") next.set("role", role);
-    if (sort !== "match") next.set("sort", sort);
+    if (sort !== "views") next.set("sort", sort);
     if (from) next.set("from", from);
     if (to) next.set("to", to);
     return next.toString();
@@ -71,6 +71,8 @@ export function ResultsView() {
     const next = new URLSearchParams(queryString);
     if (fromPage) next.set("fromPage", String(fromPage));
     if (skipIds?.length) next.set("skip", skipIds.join(","));
+    const rev = process.env.NEXT_PUBLIC_SEARCH_REV;
+    if (rev) next.set("r", rev);
     const url = `/api/search?${next.toString()}`;
     return fetchSearch<SearchResponse>(url);
   }, [queryString]);

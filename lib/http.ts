@@ -20,10 +20,10 @@ export function noStore(data: unknown, init?: { status?: number }) {
   });
 }
 
-export function cachedJson(data: unknown, seconds: number) {
+export function cachedJson(data: unknown, seconds: number, staleSeconds = seconds) {
   return NextResponse.json(data, {
     headers: {
-      "Cache-Control": `public, s-maxage=${seconds}, stale-while-revalidate=86400`,
+      "Cache-Control": `public, s-maxage=${seconds}, stale-while-revalidate=${staleSeconds}`,
     },
   });
 }
