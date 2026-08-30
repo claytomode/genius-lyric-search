@@ -358,6 +358,26 @@ select {
   font-size: 14px;
 }
 
+.scan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 22px;
+  width: min(100%, 360px);
+}
+
+.scan-bar {
+  height: 3px;
+  background: var(--line);
+}
+
+.scan-bar span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transition: width 0.25s ease;
+}
+
 .results {
   display: flex;
   flex-direction: column;

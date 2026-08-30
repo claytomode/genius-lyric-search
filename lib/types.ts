@@ -77,6 +77,11 @@ export type SearchResult = {
   nearMiss: boolean;
 };
 
+export type CatalogStreamEvent =
+  | { type: "hit"; result: SearchResult }
+  | { type: "progress"; page: number; scanned: number }
+  | { type: "done"; nextFromPage: number | null };
+
 export type SearchResponse = {
   results: SearchResult[];
   nextFromPage: number | null;
@@ -84,4 +89,5 @@ export type SearchResponse = {
   query: string;
   parsed: string | null;
   relaxed: boolean;
+  continueCatalog?: boolean;
 };

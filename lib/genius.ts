@@ -1,5 +1,6 @@
 import type {
   ArtistRole,
+  CatalogStreamEvent,
   GeniusArtist,
   GeniusLyricHit,
   GeniusSong,
@@ -12,6 +13,7 @@ import { formatQuery, geniusQueries, parseQuery, queryFeatures } from "./query";
 import { matchQuery } from "./match";
 import { resolveGeniusApi } from "./geniusApi";
 import { lyricsFromLrclib } from "./lrclib";
+import { rankResults } from "./rank";
 
 const HEADERS = {
   Accept: "application/json",
@@ -172,36 +174,6 @@ function toResult(song: GeniusSong, role: "lead" | "featured", hit?: GeniusLyric
     matchKind: "any",
     nearMiss: false,
   };
-}
-
-function applyDateAndSort(
-  results: SearchResult[],
-  startDate: string | undefined,
-  endDate: string | undefined,
-  sort: SortMode,
-) {
-  const start = startDate ? Date.parse(startDate) : NaN;
-  const end = endDate ? Date.parse(endDate) + 24 * 60 * 60 * 1000 - 1 : NaN;
-
-  const filtered = results.filter((result) => {
-    if (!Number.isNaN(start) || !Number.isNaN(end)) {
-      if (result.releaseTimestamp == null) return false;
-      if (!Number.isNaN(start) && result.releaseTimestamp < start) return false;
-      if (!Number.isNaN(end) && result.releaseTimestamp > end) return false;
-    }
-    return true;
-  });
-
-  if (sort === "newest") {
-    filtered.sort((a, b) => (b.releaseTimestamp ?? 0) - (a.releaseTimestamp ?? 0));
-  } else if (sort === "oldest") {
-    filtered.sort((a, b) => (a.releaseTimestamp ?? Infinity) - (b.releaseTimestamp ?? Infinity));
-  } else if (sort === "views") {
-    filtered.sort((a, b) => (b.pageviews ?? -1) - (a.pageviews ?? -1));
-  } else {
-    filtered.sort((a, b) => b.score - a.score || (b.pageviews ?? 0) - (a.pageviews ?? 0));
-  }
-  return filtered;
 }
 
 type LyricSearchResponse = {
@@ -430,31 +402,30 @@ async function scanCatalogChunk(
   skip: Set<number>,
   room: number,
   deadline?: number,
+  onMatch?: (result: SearchResult) => void,
 ): Promise<SearchResult[]> {
   const found: SearchResult[] = [];
   for (let i = 0; i < songs.length && found.length < room; ) {
     if (deadline && Date.now() >= deadline) break;
     const chunk = songs.slice(i, i + CATALOG_LYRIC_CONCURRENCY);
     i += chunk.length;
-    const batch = await Promise.all(
+    await Promise.all(
       chunk.map(async ({ song, role: credit }) => {
         try {
-          if (skip.has(song.id)) return null;
+          if (skip.has(song.id) || found.length >= room) return;
           const result = toResult(song, credit);
           const artistName = song.primary_artist?.name ?? song.artist_names;
           const lyrics = await lyricsFromLrclib({ title: song.title, artist: artistName });
-          return lyricsMatch(result, parsed, lyrics);
+          const matched = await lyricsMatch(result, parsed, lyrics);
+          if (!matched || skip.has(matched.id) || found.length >= room) return;
+          skip.add(matched.id);
+          found.push(matched);
+          onMatch?.(matched);
         } catch {
-          return null;
+          return;
         }
       }),
     );
-    for (const item of batch) {
-      if (!item || skip.has(item.id)) continue;
-      skip.add(item.id);
-      found.push(item);
-      if (found.length >= room) break;
-    }
   }
   return found;
 }
@@ -478,16 +449,20 @@ async function searchArtistCatalog(
     maxPages: number;
     matchLimit: number;
     deadline?: number;
+    onMatch?: (result: SearchResult) => void;
+    onProgress?: (info: { page: number; scanned: number }) => void;
+    signal?: AbortSignal;
   },
 ): Promise<{ results: SearchResult[]; nextPage: number | null }> {
   const found: SearchResult[] = [];
   const limit = Math.max(1, opts.matchLimit);
   let page = opts.startPage ?? 1;
   let resume: number | null = null;
+  let scanned = 0;
   let pending: Promise<ArtistSongsResponse | null> = opts.firstPage ?? fetchArtistSongPage(artistId, page);
 
-  for (let scanned = 0; scanned < opts.maxPages && found.length < limit; scanned += 1) {
-    if (opts.deadline && Date.now() >= opts.deadline) {
+  for (let scannedPages = 0; scannedPages < opts.maxPages && found.length < limit; scannedPages += 1) {
+    if (opts.signal?.aborted || (opts.deadline && Date.now() >= opts.deadline)) {
       resume = page;
       break;
     }
@@ -501,7 +476,7 @@ async function searchArtistCatalog(
     if (!response) break;
     const next = response.next_page;
     pending =
-      next && scanned + 1 < opts.maxPages && found.length < limit
+      next && scannedPages + 1 < opts.maxPages && found.length < limit
         ? fetchArtistSongPage(artistId, next)
         : Promise.resolve(null);
 
@@ -512,7 +487,18 @@ async function searchArtistCatalog(
       if (!credited || !matchesRole(credited, role)) continue;
       songs.push({ song, role: credited });
     }
-    found.push(...(await scanCatalogChunk(songs, parsed, skip, limit - found.length, opts.deadline)));
+    found.push(
+      ...(await scanCatalogChunk(
+        songs,
+        parsed,
+        skip,
+        limit - found.length,
+        opts.deadline,
+        opts.onMatch,
+      )),
+    );
+    scanned += songs.length;
+    opts.onProgress?.({ page, scanned });
 
     if (found.length >= limit) {
       resume = page;
@@ -559,6 +545,49 @@ async function verifyGeniusHits(
     }
   }
   return found;
+}
+
+export async function streamArtistCatalog(opts: {
+  q: string;
+  artistId: number;
+  role: ArtistRole;
+  sort: SortMode;
+  startDate?: string;
+  endDate?: string;
+  fromPage?: number;
+  skipIds?: number[];
+  onEvent: (event: CatalogStreamEvent) => void;
+  signal?: AbortSignal;
+}) {
+  const query = opts.q.trim();
+  if (!query) {
+    opts.onEvent({ type: "done", nextFromPage: null });
+    return;
+  }
+
+  const parsed = parseQuery(query);
+  const skip = new Set(opts.skipIds ?? []);
+  const fromPage = Math.max(1, Math.min(200, opts.fromPage ?? 1));
+
+  const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, skip, {
+    startPage: fromPage,
+    maxPages: CATALOG_DEEPER_PAGES,
+    matchLimit: CATALOG_DEEPER_LIMIT,
+    deadline: Date.now() + CATALOG_DEEPER_BUDGET_MS,
+    onMatch: (result) => {
+      const decorated =
+        decorateResult(result, parsed, 0) ??
+        (parsed.explicit ? decorateResult(result, parsed, 1) : null);
+      if (!decorated) return;
+      const ranked = rankResults([decorated], opts.startDate, opts.endDate, opts.sort);
+      if (!ranked[0]) return;
+      opts.onEvent({ type: "hit", result: ranked[0] });
+    },
+    onProgress: (info) => opts.onEvent({ type: "progress", page: info.page, scanned: info.scanned }),
+    signal: opts.signal,
+  });
+
+  opts.onEvent({ type: "done", nextFromPage: catalog.nextPage });
 }
 
 export async function searchLyrics(opts: {
@@ -609,7 +638,7 @@ export async function searchLyrics(opts: {
       relaxed = decorated.length > 0;
     }
     return {
-      results: applyDateAndSort(decorated, opts.startDate, opts.endDate, opts.sort),
+      results: rankResults(decorated, opts.startDate, opts.endDate, opts.sort),
       nextFromPage: catalog.nextPage,
       scannedPages: 1,
       query,
@@ -619,10 +648,12 @@ export async function searchLyrics(opts: {
   }
 
   const catalogPage1 =
-    opts.artistId && fromPage === 1 ? fetchArtistSongPage(opts.artistId, 1) : null;
+    opts.artistId && fromPage === 1 && resolveGeniusApi().mode !== "official"
+      ? fetchArtistSongPage(opts.artistId, 1)
+      : null;
   const official = resolveGeniusApi().mode === "official";
   const catalogPromise =
-    opts.artistId && fromPage === 1 && official
+    opts.artistId && fromPage === 1 && !official
       ? searchArtistCatalog(opts.artistId, parsed, opts.role, new Set(), {
           firstPage: catalogPage1 ?? undefined,
           maxPages: CATALOG_PAGES,
@@ -660,7 +691,7 @@ export async function searchLyrics(opts: {
   let scannedPages = lyricHits.scannedPages;
   let nextFromPage = opts.artistId ? 1 : lyricHits.nextFromPage ?? titlePage.nextPage;
 
-  if (opts.artistId && fromPage === 1 && collected.length < 4) {
+  if (opts.artistId && fromPage === 1 && collected.length < 4 && !official) {
     const skip = new Set(collected.map((result) => result.id));
     const catalog = catalogPromise
       ? await catalogPromise
@@ -675,6 +706,9 @@ export async function searchLyrics(opts: {
     nextFromPage = catalog.nextPage;
   }
 
+  const continueCatalog = official && Boolean(opts.artistId);
+  if (continueCatalog) nextFromPage = fromPage;
+
   const decorate = (autoFuzz: number) =>
     collected
       .map((result) => decorateResult(result, parsed, autoFuzz))
@@ -688,12 +722,13 @@ export async function searchLyrics(opts: {
   }
 
   return {
-    results: applyDateAndSort(decorated, opts.startDate, opts.endDate, opts.sort),
+    results: rankResults(decorated, opts.startDate, opts.endDate, opts.sort),
     nextFromPage,
     scannedPages,
     query,
     parsed: formatQuery(parsed.ast),
     relaxed,
+    continueCatalog,
   };
 }
 
@@ -736,7 +771,7 @@ export async function listArtistSongs(opts: {
   }
 
   return {
-    results: applyDateAndSort(collected, opts.startDate, opts.endDate, opts.sort),
+    results: rankResults(collected, opts.startDate, opts.endDate, opts.sort),
     nextFromPage,
     scannedPages,
     query: "",

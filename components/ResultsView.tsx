@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { ResultCard } from "./ResultCard";
 import { SearchForm, type SearchValues } from "./SearchForm";
 import { LyricCardModal } from "./LyricCardModal";
-import { warmupResults, fetchSearch } from "@/lib/prefetch";
+import { warmupResults, fetchSearch, streamCatalog } from "@/lib/prefetch";
+import { rankResults } from "@/lib/rank";
 import type { ArtistRole, SearchResponse, SearchResult, SortMode } from "@/lib/types";
 
 function roleFromParam(value: string | null): ArtistRole {
@@ -52,9 +53,15 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
   const [nextFromPage, setNextFromPage] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanPct, setScanPct] = useState(0);
   const [card, setCard] = useState<SearchResult | null>(null);
   const [relaxed, setRelaxed] = useState(false);
+  const [scanNonce, setScanNonce] = useState(0);
   const requestId = useRef(0);
+  const autoScan = useRef(false);
+  const resultsRef = useRef(results);
+  resultsRef.current = results;
 
   const queryString = useMemo(() => {
     const next = new URLSearchParams();
@@ -87,15 +94,20 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
       setNextFromPage(null);
       setRelaxed(false);
       setLoading(false);
+      setScanning(false);
+      autoScan.current = false;
       return;
     }
     setLoading(true);
     setResults([]);
+    setScanning(false);
+    setScanPct(0);
+    autoScan.current = false;
     load()
       .then((data) => {
         if (cancelled) return;
         setResults(data.results);
-        setNextFromPage(data.nextFromPage);
+        setNextFromPage(data.continueCatalog ? data.nextFromPage ?? 1 : data.nextFromPage);
         setRelaxed(Boolean(data.relaxed));
         warmupResults(data.results, q);
       })
@@ -112,8 +124,67 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
     };
   }, [load, blocked, q]);
 
+  useEffect(() => {
+    if (!requireArtist || blocked || loading || !nextFromPage || !artistId || !q) return;
+    if (autoScan.current) return;
+    autoScan.current = true;
+
+    const ac = new AbortController();
+    const id = requestId.current;
+    const skip = resultsRef.current.map((result) => result.id);
+    const page = nextFromPage;
+    setScanning(true);
+    setScanPct(0);
+
+    const next = new URLSearchParams(queryString);
+    next.set("fromPage", String(page));
+    if (skip.length) next.set("skip", skip.join(","));
+
+    streamCatalog(`/api/search/catalog?${next.toString()}`, ac.signal, (event) => {
+      if (id !== requestId.current) return;
+      if (event.type === "hit") {
+        setResults((prev) => {
+          if (prev.some((result) => result.id === event.result.id)) return prev;
+          return rankResults([...prev, event.result], from || undefined, to || undefined, sort);
+        });
+        warmupResults([event.result], q);
+      } else if (event.type === "progress") {
+        setScanPct(Math.min(99, Math.round((event.page / 30) * 100)));
+      } else if (event.type === "done") {
+        setNextFromPage(event.nextFromPage);
+        setScanPct(100);
+      }
+    })
+      .catch(() => {
+        if (id !== requestId.current) return;
+        autoScan.current = false;
+      })
+      .finally(() => {
+        if (id === requestId.current) setScanning(false);
+      });
+
+    return () => ac.abort();
+  }, [
+    requireArtist,
+    blocked,
+    loading,
+    nextFromPage,
+    artistId,
+    q,
+    queryString,
+    from,
+    to,
+    sort,
+    scanNonce,
+  ]);
+
   async function loadMore() {
     if (!nextFromPage) return;
+    if (requireArtist) {
+      autoScan.current = false;
+      setScanNonce((nonce) => nonce + 1);
+      return;
+    }
     const id = requestId.current;
     setLoadingMore(true);
     try {
@@ -168,10 +239,15 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
           Searching Genius...
         </p>
       ) : null}
-      {!loading && results.length === 0 && !blocked ? (
+      {!loading && scanning && results.length === 0 ? (
+        <p className="status" role="status">
+          Checking {artistName || "their"} songs...
+        </p>
+      ) : null}
+      {!loading && !scanning && results.length === 0 && !blocked ? (
         <p className="status" role="status">
           {requireArtist
-            ? "No matches in their songs. Try a more specific line, or Search deeper."
+            ? "No matches in their songs. Try a more specific line."
             : `No matches in the pages Genius returned. Try a more specific line${
                 artistName ? `, or drop the ${artistName} filter` : ""
               }.`}
@@ -191,9 +267,28 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
         ))}
       </div>
 
-      {nextFromPage ? (
+      {scanning ? (
+        <div className="scan" role="status">
+          <p className="status">
+            {results.length
+              ? `Checking more of ${artistName || "their"} songs...`
+              : "Scanning catalog..."}
+          </p>
+          <div className="scan-bar" aria-hidden="true">
+            <span style={{ width: `${Math.max(scanPct, 8)}%` }} />
+          </div>
+        </div>
+      ) : null}
+
+      {nextFromPage && !scanning ? (
         <button className="more" type="button" onClick={loadMore} disabled={loadingMore}>
-          {loadingMore ? "Loading..." : artistId ? "Search deeper" : "More results"}
+          {loadingMore
+            ? "Loading..."
+            : requireArtist
+              ? "Keep scanning"
+              : artistId
+                ? "Search deeper"
+                : "More results"}
         </button>
       ) : null}
 

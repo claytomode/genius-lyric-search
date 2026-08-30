@@ -1,6 +1,6 @@
 import { proxyArt, type CardPhoto } from "./cardPhotos";
 import type { LyricRow } from "./excerpt";
-import type { SearchResult } from "./types";
+import type { CatalogStreamEvent, SearchResult } from "./types";
 
 export type ExcerptPayload = {
   rows?: LyricRow[];
@@ -86,4 +86,36 @@ export async function fetchSearch<T>(url: string): Promise<T> {
   if (!res.ok) throw new Error(data.error || "Search failed");
   searchMemo.set(url, { at: Date.now(), data });
   return data;
+}
+
+export async function streamCatalog(
+  url: string,
+  signal: AbortSignal,
+  onEvent: (event: CatalogStreamEvent) => void,
+) {
+  const res = await fetch(url, { signal, cache: "no-store" });
+  if (!res.ok || !res.body) throw new Error("Catalog scan failed");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        onEvent(JSON.parse(trimmed) as CatalogStreamEvent);
+      } catch {
+        continue;
+      }
+    }
+  }
+  const last = buffer.trim();
+  if (last) onEvent(JSON.parse(last) as CatalogStreamEvent);
 }
