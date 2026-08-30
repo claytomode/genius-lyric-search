@@ -37,6 +37,12 @@ describe("matchQuery", () => {
     expect(painted).toBe("Started from the bottom");
   });
 
+  it("does not match terms scattered across the song", () => {
+    const parsed = parseQuery("can't decide");
+    const lyrics = "I can't wait in no line\n\nI switch the side, couldn't wait\nlater I decide nothing";
+    expect(matchQuery(parsed.ast, lyrics).ok).toBe(false);
+  });
+
   it("ignores case and punctuation", () => {
     const parsed = parseQuery("can't decide");
     const line = "I just Can't decide, tonight";
@@ -44,5 +50,10 @@ describe("matchQuery", () => {
     expect(match.ok).toBe(true);
     const bits = match.ranges.map((range) => line.slice(range.start, range.end));
     expect(bits.join(" ")).toBe("Can't decide");
+  });
+
+  it("does not treat couldn't as can't", () => {
+    const parsed = parseQuery("can't decide");
+    expect(matchQuery(parsed.ast, "couldn't decide on the wrap").ok).toBe(false);
   });
 });

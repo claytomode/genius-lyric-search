@@ -16,6 +16,19 @@ export function safeGeniusImageUrl(raw: string): URL | null {
   return url;
 }
 
+/** Prefer a ~300px Genius variant so list tiles are not 1000×1000 PNGs. */
+export function compactGeniusImage(raw: string | null, maxEdge = 300): string | null {
+  if (!raw || !safeGeniusImageUrl(raw)) return null;
+  return raw.replace(/\.(\d+)x(\d+)x(\d+)\./, (_, w, h, n) => {
+    const width = Number(w);
+    const height = Number(h);
+    if (!width || !height || Math.max(width, height) <= maxEdge) {
+      return `.${w}x${h}x${n}.`;
+    }
+    return `.${maxEdge}x${maxEdge}x${n}.`;
+  });
+}
+
 export function allowedImageType(contentType: string | null): string | null {
   if (!contentType) return null;
   const type = contentType.split(";")[0]?.trim().toLowerCase();

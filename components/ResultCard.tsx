@@ -1,6 +1,6 @@
 import { HighlightedSnippet } from "./HighlightedSnippet";
 import { matchKindLabel } from "@/lib/match";
-import { proxyArt } from "@/lib/cardPhotos";
+import { listArtUrl, proxyArt } from "@/lib/cardPhotos";
 import type { SearchResult } from "@/lib/types";
 
 function formatViews(n: number) {
@@ -28,21 +28,32 @@ export function ResultCard({
   result,
   artistName,
   onCard,
+  priority = false,
 }: {
   result: SearchResult;
   artistName?: string;
   onCard?: () => void;
+  priority?: boolean;
 }) {
   const featuredOn = result.role === "featured" ? result.primaryArtist : null;
   const others = result.featuredArtists.filter((name) => name !== artistName);
   const href = geniusHref(result.url);
-  const art = proxyArt(result.art);
+  const art = listArtUrl(result.artThumb || result.art) ?? proxyArt(result.artThumb || result.art);
 
   return (
     <article className="result">
       {art ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="art" src={art} alt="" width={72} height={72} />
+        <img
+          className="art"
+          src={art}
+          alt=""
+          width={56}
+          height={56}
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          fetchPriority={priority ? "high" : "low"}
+        />
       ) : (
         <div className="art placeholder" />
       )}

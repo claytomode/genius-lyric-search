@@ -1,4 +1,5 @@
 import type { GeniusArtist, GeniusSong, SearchResult } from "./types";
+import { compactGeniusImage, safeGeniusImageUrl } from "./art";
 
 export type CardPhoto = {
   id: string;
@@ -71,4 +72,10 @@ export function photosFromResult(result: SearchResult): CardPhoto[] {
 
 export function proxyArt(url: string | null) {
   return url ? `/api/art?u=${encodeURIComponent(url)}` : null;
+}
+
+/** Same-origin proxy is only required for html-to-image. List tiles can hit Genius CDN. */
+export function listArtUrl(url: string | null) {
+  const src = compactGeniusImage(url) ?? url;
+  return src && safeGeniusImageUrl(src) ? src : null;
 }

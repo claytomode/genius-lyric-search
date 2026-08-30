@@ -4,15 +4,39 @@ import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { LyricCard } from "./LyricCard";
 import { selectedLines, linesFromSnippet, type LyricRow } from "@/lib/excerpt";
-import { photosFromResult, proxyArt, type CardPhoto } from "@/lib/cardPhotos";
+import { photosFromResult, proxyArt, listArtUrl, type CardPhoto } from "@/lib/cardPhotos";
+import { parseQuery } from "@/lib/query";
+import { matchQuery } from "@/lib/match";
 import type { SearchResult } from "@/lib/types";
 
 type LyricCardModalProps = {
   result: SearchResult;
+  query?: string;
   onClose: () => void;
 };
 
-function paintLine(text: string, quote: string[]) {
+function paintMarks(text: string, ranges: { start: number; end: number }[]) {
+  const parts: { text: string; hit: boolean }[] = [];
+  let cursor = 0;
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  for (const range of sorted) {
+    const start = Math.max(0, Math.min(text.length, range.start));
+    const end = Math.max(start, Math.min(text.length, range.end));
+    if (cursor < start) parts.push({ text: text.slice(cursor, start), hit: false });
+    if (end > start) parts.push({ text: text.slice(start, end), hit: true });
+    cursor = end;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), hit: false });
+  return parts.map((part, index) =>
+    part.hit ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>,
+  );
+}
+
+function paintLine(text: string, quote: string[], ast: ReturnType<typeof parseQuery>["ast"] | null) {
+  if (ast) {
+    const match = matchQuery(ast, text, 0);
+    if (match.ok && match.ranges.length) return paintMarks(text, match.ranges);
+  }
   if (!quote.length) return text;
   if (quote.includes(text)) return <mark>{text}</mark>;
   for (const piece of quote) {
@@ -59,7 +83,7 @@ function quoteFromSelection(root: HTMLElement): string[] | null {
   return lines.length ? lines.slice(0, 8) : null;
 }
 
-export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
+export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) {
   const artist =
     result.featuredArtists.length > 0
       ? `${result.primaryArtist} ft. ${result.featuredArtists.join(", ")}`
@@ -77,6 +101,7 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
   const [loading, setLoading] = useState(true);
   const chosen = photos.find((photo) => photo.id === photoId) ?? photos[0];
   const proxiedArt = proxyArt(chosen?.url ?? null);
+  const ast = query ? parseQuery(query).ast : null;
 
   useEffect(() => {
     const root = studioRef.current;
@@ -123,6 +148,7 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
       artist: result.primaryArtist,
       snippet: result.snippet ?? "",
     });
+    if (query) params.set("q", query);
     fetch(`/api/excerpt?${params.toString()}`)
       .then((res) => res.json())
       .then((data: { rows?: LyricRow[]; start?: number; end?: number }) => {
@@ -147,7 +173,7 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [result]);
+  }, [result, query]);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,7 +272,7 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
                 </div>
               ) : (
                 <p key={row.id} className="card-line-text">
-                  {paintLine(row.text, quote)}
+                  {paintLine(row.text, quote, ast)}
                 </p>
               ),
             )}
@@ -278,7 +304,14 @@ export function LyricCardModal({ result, onClose }: LyricCardModalProps) {
                     onClick={() => setPhotoId(photo.id)}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={proxyArt(photo.url) ?? ""} alt="" />
+                    <img
+                      src={listArtUrl(photo.url) ?? proxyArt(photo.url) ?? ""}
+                      alt=""
+                      width={72}
+                      height={72}
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <span>{label}</span>
                   </button>
                 );

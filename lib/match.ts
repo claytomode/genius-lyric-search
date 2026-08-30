@@ -47,26 +47,19 @@ export function levenshtein(a: string, b: string, cap = 2): number {
 }
 
 function termHits(tokens: Token[], value: string, fuzz: number): Token[] {
-  const needle = normalize(value);
-  if (!needle) return [];
   const hits: Token[] = [];
   for (const token of tokens) {
-    const hay = normalize(token.word);
-    if (!hay) continue;
-    if (hay === needle) {
-      hits.push(token);
-      continue;
-    }
-    if (fuzz > 0 && levenshtein(needle, hay, fuzz) <= fuzz) hits.push(token);
+    if (tokenMatches(token, value, fuzz)) hits.push(token);
   }
   return hits;
 }
 
 function tokenMatches(token: Token, word: string, fuzz: number) {
   const hay = normalize(token.word);
-  if (!hay) return false;
-  if (hay === word) return true;
-  return fuzz > 0 && levenshtein(word, hay, fuzz) <= fuzz;
+  const needle = normalize(word);
+  if (!hay || !needle) return false;
+  if (hay === needle) return true;
+  return fuzz > 0 && levenshtein(needle, hay, fuzz) <= fuzz;
 }
 
 function windowContains(
@@ -76,7 +69,7 @@ function windowContains(
   fuzz: number,
 ): { ranges: HighlightRange[]; span: number } | null {
   if (!words.length) return null;
-  const needed = words.map(normalize).filter(Boolean);
+  const needed = words.filter((word) => normalize(word));
   if (!needed.length) return null;
 
   let best: { ranges: HighlightRange[]; span: number } | null = null;
@@ -157,13 +150,14 @@ function evaluateNode(node: QueryNode, tokens: Token[], autoFuzz: number): Eval 
           child.type === "term" ? [child.value] : child.type === "phrase" ? child.words : [],
         );
         const consecutive = windowContains(tokens, words, 0, autoFuzz);
-        const inOrder = consecutive ?? windowContains(tokens, words, 12, autoFuzz);
-        const score = children.reduce((sum, child) => sum + child.score, 0) + (consecutive ? 30 : inOrder ? 25 : 0);
+        const inOrder = consecutive ?? windowContains(tokens, words, 2, autoFuzz);
+        if (!inOrder) return { ok: false, score: 0, kind: "any", ranges: [], fuzzy };
+        const score = children.reduce((sum, child) => sum + child.score, 0) + (consecutive ? 30 : 20);
         return {
           ok: true,
           score,
-          kind: consecutive || inOrder ? "phrase" : "all",
-          ranges: inOrder?.ranges ?? ranges,
+          kind: consecutive ? "phrase" : "proximity",
+          ranges: inOrder.ranges,
           fuzzy,
         };
       }

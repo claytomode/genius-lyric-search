@@ -13,7 +13,7 @@ export function LyricCard({ art, lines, title, artist, size }: LyricCardProps) {
     <div className="genius-card">
       {art ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="genius-card-art" src={art} alt="" />
+        <img className="genius-card-art" src={art} alt="" decoding="async" />
       ) : (
         <div className="genius-card-art fallback" />
       )}

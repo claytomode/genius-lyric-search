@@ -163,11 +163,12 @@ export function ResultsView() {
       ) : null}
 
       <div className="results">
-        {results.map((result) => (
+        {results.map((result, index) => (
           <ResultCard
             key={result.id}
             result={result}
             artistName={artistName}
+            priority={index < 3}
             onCard={() => setCard(result)}
           />
         ))}
@@ -179,7 +180,7 @@ export function ResultsView() {
         </button>
       ) : null}
 
-      {card ? <LyricCardModal result={card} onClose={() => setCard(null)} /> : null}
+      {card ? <LyricCardModal result={card} query={q} onClose={() => setCard(null)} /> : null}
     </div>
   );
 }

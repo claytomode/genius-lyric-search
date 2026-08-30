@@ -27,10 +27,25 @@ export function rowsFromLyrics(lyrics: string, limit = 80): LyricRow[] {
   return rows;
 }
 
-export function suggestSelection(rows: LyricRow[], snippet: string): { start: number; end: number } {
+export function suggestSelection(
+  rows: LyricRow[],
+  snippet: string,
+  matchesLine?: (text: string) => boolean,
+): { start: number; end: number } {
   const lineRows = rows.filter((row) => row.kind === "line");
   const fallbackStart = lineRows[0]?.id ?? 0;
   const fallbackEnd = lineRows[Math.min(3, lineRows.length - 1)]?.id ?? fallbackStart;
+
+  if (matchesLine) {
+    const hit = lineRows.find((row) => matchesLine(row.text));
+    if (hit) return { start: hit.id, end: hit.id };
+    for (let i = 0; i < lineRows.length - 1; i++) {
+      if (matchesLine(`${lineRows[i].text} ${lineRows[i + 1].text}`)) {
+        return { start: lineRows[i].id, end: lineRows[i + 1].id };
+      }
+    }
+  }
+
   const needles = snippet
     .split(/\n/)
     .map((line) => line.trim())
@@ -42,7 +57,7 @@ export function suggestSelection(rows: LyricRow[], snippet: string): { start: nu
   if (!hit) return { start: fallbackStart, end: fallbackEnd };
 
   const index = lineRows.findIndex((row) => row.id === hit.id);
-  const span = Math.min(Math.max(needles.length, 3), 5);
+  const span = Math.min(Math.max(needles.length, 1), 4);
   const end = lineRows[Math.min(index + span - 1, lineRows.length - 1)];
   return { start: hit.id, end: end.id };
 }

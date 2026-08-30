@@ -13,4 +13,10 @@ describe("excerpt", () => {
     const range = suggestSelection(rows, "Sober for a week");
     expect(selectedLines(rows, range.start, range.end).join(" ")).toContain("Sober for a week");
   });
+
+  it("selects the line that actually matches the query", () => {
+    const song = rowsFromLyrics("I can't wait in no line\nStarted from the bottom now we're here");
+    const range = suggestSelection(song, "I can't wait", (text) => /started from the bottom/i.test(text));
+    expect(selectedLines(song, range.start, range.end).join(" ")).toContain("Started from the bottom");
+  });
 });

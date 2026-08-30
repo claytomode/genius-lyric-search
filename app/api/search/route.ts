@@ -17,7 +17,7 @@ function asSort(value: string | null): SortMode {
 }
 
 export async function GET(request: NextRequest) {
-  const limited = tooMany(request, "search", 10);
+  const limited = tooMany(request, "search", 20);
   if (limited) return limited;
 
   const { searchParams } = request.nextUrl;

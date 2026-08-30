@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedImageType, safeGeniusImageUrl } from "./art";
+import { allowedImageType, compactGeniusImage, safeGeniusImageUrl } from "./art";
 
 describe("safeGeniusImageUrl", () => {
   it("accepts https genius image hosts", () => {
@@ -13,6 +13,14 @@ describe("safeGeniusImageUrl", () => {
     expect(safeGeniusImageUrl("https://user:pass@images.genius.com/a.png")).toBeNull();
     expect(safeGeniusImageUrl("https://images.genius.com:8080/a.png")).toBeNull();
     expect(safeGeniusImageUrl("https://evil.com/a.png")).toBeNull();
+  });
+});
+
+describe("compactGeniusImage", () => {
+  it("shrinks a 1000px Genius asset to 300px", () => {
+    expect(
+      compactGeniusImage("https://images.genius.com/abc.1000x1000x1.png"),
+    ).toBe("https://images.genius.com/abc.300x300x1.png");
   });
 });
 

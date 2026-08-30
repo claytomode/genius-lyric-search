@@ -61,6 +61,7 @@ export type SearchResult = {
   title: string;
   url: string;
   art: string | null;
+  artThumb: string | null;
   artistImage: string | null;
   primaryArtist: string;
   primaryArtistId: number;

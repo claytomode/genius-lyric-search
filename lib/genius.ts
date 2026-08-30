@@ -7,6 +7,7 @@ import type {
   SortMode,
 } from "./types";
 import { photosFromSong, type CardPhoto } from "./cardPhotos";
+import { compactGeniusImage } from "./art";
 import { formatQuery, geniusQueries, parseQuery, queryFeatures } from "./query";
 import { matchQuery } from "./match";
 import { resolveGeniusApi } from "./geniusApi";
@@ -19,27 +20,13 @@ const HEADERS = {
 
 const GENIUS_PER_PAGE = 20;
 const CATALOG_PAGES = 4;
-const CATALOG_LYRIC_CONCURRENCY = 8;
+const CATALOG_LYRIC_CONCURRENCY = 16;
+const CATALOG_MATCH_LIMIT = 4;
 
 type GeniusEnvelope<T> = {
   meta: { status: number };
   response: T;
 };
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  async function worker() {
-    for (;;) {
-      const index = next;
-      next += 1;
-      if (index >= items.length) return;
-      out[index] = await fn(items[index]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return out;
-}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -156,11 +143,23 @@ function matchesRole(role: "lead" | "featured", filter: ArtistRole) {
 
 function toResult(song: GeniusSong, role: "lead" | "featured", hit?: GeniusLyricHit): SearchResult {
   const lyric = hit?.highlights?.find((h) => h.property === "lyrics") ?? hit?.highlights?.[0];
+  const full =
+    song.song_art_image_url ||
+    song.header_image_url ||
+    song.song_art_image_thumbnail_url ||
+    song.header_image_thumbnail_url ||
+    null;
+  const thumb =
+    song.song_art_image_thumbnail_url ||
+    song.header_image_thumbnail_url ||
+    compactGeniusImage(full) ||
+    full;
   return {
     id: song.id,
     title: song.title,
     url: song.url,
-    art: song.song_art_image_url || song.header_image_url || song.song_art_image_thumbnail_url || song.header_image_thumbnail_url || null,
+    art: full,
+    artThumb: thumb,
     artistImage: song.primary_artist?.image_url || null,
     primaryArtist: song.primary_artist?.name ?? song.artist_names,
     primaryArtistId: song.primary_artist?.id ?? 0,
@@ -261,9 +260,9 @@ function snippetFromLyrics(
   if (hit.ok && hit.ranges.length) {
     const first = Math.min(...hit.ranges.map((range) => range.start));
     const last = Math.max(...hit.ranges.map((range) => range.end));
-    let start = lyrics.lastIndexOf("\n", Math.max(0, first - 60));
+    let start = lyrics.lastIndexOf("\n", first);
     start = start < 0 ? 0 : start + 1;
-    let end = lyrics.indexOf("\n", last + 80);
+    let end = lyrics.indexOf("\n", last);
     if (end < 0) end = lyrics.length;
     const snippet = lyrics.slice(start, end).trim();
     return {
@@ -280,20 +279,38 @@ function snippetFromLyrics(
   return { snippet: lines.slice(0, 6).join("\n"), ranges: [] };
 }
 
+async function lyricsMatch(
+  result: SearchResult,
+  parsed: ReturnType<typeof parseQuery>,
+  lyrics: string | null,
+): Promise<SearchResult | null> {
+  if (result.snippet) {
+    const snippetHit = matchQuery(parsed.ast, result.snippet, 0);
+    if (snippetHit.ok) {
+      const cut = snippetFromLyrics(result.snippet, parsed);
+      return { ...result, snippet: cut.snippet, ranges: cut.ranges };
+    }
+  }
+  if (!lyrics) return null;
+  if (!matchQuery(parsed.ast, lyrics, 0).ok) return null;
+  const cut = snippetFromLyrics(lyrics, parsed);
+  return { ...result, snippet: cut.snippet, ranges: cut.ranges };
+}
+
 async function fillSnippetsFromLrclib(
   results: SearchResult[],
   parsed: ReturnType<typeof parseQuery>,
 ) {
   for (const result of results.slice(0, 8)) {
-    if (result.snippet) continue;
+    if (result.snippet && matchQuery(parsed.ast, result.snippet, 0).ok) continue;
     const lyrics = await lyricsFromLrclib({
       title: result.title,
       artist: result.primaryArtist,
     });
-    if (!lyrics) continue;
-    const cut = snippetFromLyrics(lyrics, parsed);
-    result.snippet = cut.snippet;
-    result.ranges = cut.ranges;
+    const matched = await lyricsMatch(result, parsed, lyrics);
+    if (!matched) continue;
+    result.snippet = matched.snippet;
+    result.ranges = matched.ranges;
   }
 }
 
@@ -309,16 +326,19 @@ function decorateResult(
   const titleBoost = titleHit.ok ? 50 : 0;
   const matchOk = snippetMatch.ok || titleHit.ok;
 
-  if (parsed.explicit && !matchOk) {
-    const features = queryFeatures(parsed.ast);
-    if (features.not) return null;
-    if (!result.ranges.length) return null;
-    return {
-      ...result,
-      score: 18 + popularity + titleBoost,
-      matchKind: features.phrase ? "phrase" : features.proximity ? "proximity" : "any",
-      nearMiss: autoFuzz > 0,
-    };
+  if (!matchOk) {
+    if (parsed.explicit) {
+      const features = queryFeatures(parsed.ast);
+      if (features.not) return null;
+      if (!result.ranges.length) return null;
+      return {
+        ...result,
+        score: 18 + popularity + titleBoost,
+        matchKind: features.phrase ? "phrase" : features.proximity ? "proximity" : "any",
+        nearMiss: autoFuzz > 0,
+      };
+    }
+    return null;
   }
 
   return {
@@ -363,32 +383,48 @@ async function collectFromQueries(
   let nextFromPage: number | null = null;
   let exhausted = true;
 
-  for (const query of queries) {
-    let page = opts.fromPage;
-    let pagesForQuery = 0;
-    const cap = opts.artistId ? opts.maxPages : 1;
-    while (pagesForQuery < cap) {
-      const batchSize = opts.artistId ? Math.min(4, cap - pagesForQuery) : 1;
-      const responses = await Promise.all(
-        Array.from({ length: batchSize }, (_, i) => lyricPage(query, page + i)),
-      );
-      for (const response of responses) {
-        scannedPages += 1;
-        pagesForQuery += 1;
-        if (response.nextPage) {
-          exhausted = false;
-          nextFromPage = Math.max(nextFromPage ?? 0, response.nextPage);
+  const cap = opts.artistId ? opts.maxPages : 1;
+  const firstPages = await Promise.all(queries.map((query) => lyricPage(query, opts.fromPage)));
+  for (const response of firstPages) {
+    scannedPages += 1;
+    if (response.nextPage) {
+      exhausted = false;
+      nextFromPage = Math.max(nextFromPage ?? 0, response.nextPage);
+    }
+    for (const hit of response.hits) {
+      const result = keepHit(hit, opts.artistId, opts.role);
+      if (!result || seen.has(result.id)) continue;
+      seen.add(result.id);
+      collected.push(result);
+    }
+  }
+
+  if (cap > 1) {
+    for (const query of queries) {
+      let page = opts.fromPage + 1;
+      let pagesForQuery = 1;
+      while (pagesForQuery < cap) {
+        const batchSize = Math.min(4, cap - pagesForQuery);
+        const responses = await Promise.all(
+          Array.from({ length: batchSize }, (_, i) => lyricPage(query, page + i)),
+        );
+        for (const response of responses) {
+          scannedPages += 1;
+          pagesForQuery += 1;
+          if (response.nextPage) {
+            exhausted = false;
+            nextFromPage = Math.max(nextFromPage ?? 0, response.nextPage);
+          }
+          for (const hit of response.hits) {
+            const result = keepHit(hit, opts.artistId, opts.role);
+            if (!result || seen.has(result.id)) continue;
+            seen.add(result.id);
+            collected.push(result);
+          }
         }
-        for (const hit of response.hits) {
-          const result = keepHit(hit, opts.artistId, opts.role);
-          if (!result || seen.has(result.id)) continue;
-          seen.add(result.id);
-          collected.push(result);
-        }
+        page += batchSize;
+        if (responses.every((response) => !response.nextPage)) break;
       }
-      page += batchSize;
-      if (responses.every((response) => !response.nextPage)) break;
-      if (!opts.artistId) break;
     }
   }
 
@@ -402,46 +438,109 @@ type ArtistSongsResponse = {
 
 type CatalogSong = { song: GeniusSong; role: "lead" | "featured" };
 
-async function collectArtistSongs(artistId: number, role: ArtistRole): Promise<CatalogSong[]> {
-  const collected: CatalogSong[] = [];
-  let page = 1;
-  for (let scanned = 0; scanned < CATALOG_PAGES; scanned += 1) {
-    const response = await geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs`, {
-      per_page: 50,
-      page,
-      sort: "popularity",
-    });
-    for (const song of response.songs ?? []) {
-      if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
-      const credited = roleOnSong(song, artistId);
-      if (!credited || !matchesRole(credited, role)) continue;
-      collected.push({ song, role: credited });
+async function scanCatalogChunk(
+  songs: CatalogSong[],
+  parsed: ReturnType<typeof parseQuery>,
+  skip: Set<number>,
+): Promise<SearchResult[]> {
+  const found: SearchResult[] = [];
+  for (let i = 0; i < songs.length && found.length < CATALOG_MATCH_LIMIT; ) {
+    const chunk = songs.slice(i, i + CATALOG_LYRIC_CONCURRENCY);
+    i += chunk.length;
+    const batch = await Promise.all(
+      chunk.map(async ({ song, role: credit }) => {
+        if (skip.has(song.id)) return null;
+        const result = toResult(song, credit);
+        const titleHit = matchQuery(parsed.ast, `${song.title}\n${song.full_title ?? ""}`, 0);
+        if (titleHit.ok) return result;
+        const artistName = song.primary_artist?.name ?? song.artist_names;
+        const lyrics = await lyricsFromLrclib({ title: song.title, artist: artistName });
+        return lyricsMatch(result, parsed, lyrics);
+      }),
+    );
+    for (const item of batch) {
+      if (!item || skip.has(item.id)) continue;
+      skip.add(item.id);
+      found.push(item);
+      if (found.length >= CATALOG_MATCH_LIMIT) break;
     }
-    if (!response.next_page) break;
-    page = response.next_page;
   }
-  return collected;
+  return found;
+}
+
+async function fetchArtistSongPage(artistId: number, page: number) {
+  return geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs`, {
+    per_page: 50,
+    page,
+    sort: "popularity",
+  });
 }
 
 async function searchArtistCatalog(
   artistId: number,
   parsed: ReturnType<typeof parseQuery>,
   role: ArtistRole,
-): Promise<SearchResult[]> {
-  const songs = await collectArtistSongs(artistId, role);
-  const matches = await mapLimit(songs, CATALOG_LYRIC_CONCURRENCY, async ({ song, role: credit }) => {
-    const result = toResult(song, credit);
-    const titleHit = matchQuery(parsed.ast, `${song.title}\n${song.full_title ?? ""}`, 0);
-    if (titleHit.ok) return result;
-    const artistName = song.primary_artist?.name ?? song.artist_names;
-    const lyrics = await lyricsFromLrclib({ title: song.title, artist: artistName });
-    if (!lyrics) return null;
-    const lyricHit = matchQuery(parsed.ast, lyrics, 0);
-    if (!lyricHit.ok) return null;
-    const cut = snippetFromLyrics(lyrics, parsed);
-    return { ...result, snippet: cut.snippet, ranges: cut.ranges };
-  });
-  return matches.filter((result): result is SearchResult => result !== null);
+  skip: Set<number>,
+  firstPage?: Promise<ArtistSongsResponse>,
+): Promise<{ results: SearchResult[]; nextPage: number | null }> {
+  const found: SearchResult[] = [];
+  let nextPage: number | null = null;
+  let pending: Promise<ArtistSongsResponse | null> = firstPage ?? fetchArtistSongPage(artistId, 1);
+
+  for (let scanned = 0; scanned < CATALOG_PAGES && found.length < CATALOG_MATCH_LIMIT; scanned += 1) {
+    const response = await pending;
+    if (!response) break;
+    nextPage = response.next_page;
+    pending =
+      nextPage && scanned + 1 < CATALOG_PAGES && found.length < CATALOG_MATCH_LIMIT
+        ? fetchArtistSongPage(artistId, nextPage)
+        : Promise.resolve(null);
+
+    const songs: CatalogSong[] = [];
+    for (const song of response.songs ?? []) {
+      if (skip.has(song.id) || isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
+      const credited = roleOnSong(song, artistId);
+      if (!credited || !matchesRole(credited, role)) continue;
+      songs.push({ song, role: credited });
+    }
+    found.push(...(await scanCatalogChunk(songs, parsed, skip)));
+    if (!nextPage) {
+      nextPage = null;
+      break;
+    }
+  }
+
+  return { results: found.slice(0, CATALOG_MATCH_LIMIT), nextPage };
+}
+
+async function verifyGeniusHits(
+  results: SearchResult[],
+  parsed: ReturnType<typeof parseQuery>,
+) {
+  const found: SearchResult[] = [];
+  for (let i = 0; i < results.length && found.length < CATALOG_MATCH_LIMIT; ) {
+    const chunk = results.slice(i, i + CATALOG_LYRIC_CONCURRENCY);
+    i += chunk.length;
+    const batch = await Promise.all(
+      chunk.map(async (result) => {
+        const matched = await lyricsMatch(result, parsed, result.snippet);
+        if (matched) return matched;
+        const titleHit = matchQuery(parsed.ast, result.title, 0);
+        const lyrics = await lyricsFromLrclib({
+          title: result.title,
+          artist: result.primaryArtist,
+        });
+        const lyricHit = await lyricsMatch(result, parsed, lyrics);
+        if (lyricHit) return lyricHit;
+        return titleHit.ok ? result : null;
+      }),
+    );
+    for (const item of batch) {
+      if (item) found.push(item);
+      if (found.length >= CATALOG_MATCH_LIMIT) break;
+    }
+  }
+  return found;
 }
 
 export async function searchLyrics(opts: {
@@ -471,27 +570,36 @@ export async function searchLyrics(opts: {
     .filter(Boolean);
   const queries = (fetchQs.length ? fetchQs : [query]).slice(0, 2);
   const fromPage = Math.max(1, Math.min(40, opts.fromPage ?? 1));
+  const catalogPage1 =
+    opts.artistId && fromPage === 1 ? fetchArtistSongPage(opts.artistId, 1) : null;
 
-  const [lyricHits, catalogHits] = await Promise.all([
-    collectFromQueries(queries, {
-      artistId: opts.artistId,
-      role: opts.role,
-      fromPage,
-      maxPages: 1,
-    }),
-    opts.artistId && fromPage === 1
-      ? searchArtistCatalog(opts.artistId, parsed, opts.role)
-      : Promise.resolve([] as SearchResult[]),
-  ]);
+  const lyricHits = await collectFromQueries(queries, {
+    artistId: opts.artistId,
+    role: opts.role,
+    fromPage,
+    maxPages: 1,
+  });
 
-  const seen = new Set(lyricHits.collected.map((result) => result.id));
-  const collected = [...lyricHits.collected];
-  for (const result of catalogHits) {
-    if (seen.has(result.id)) continue;
-    seen.add(result.id);
-    collected.push(result);
+  let collected = await verifyGeniusHits(lyricHits.collected, parsed);
+  let scannedPages = lyricHits.scannedPages;
+  let nextFromPage = lyricHits.nextFromPage;
+
+  const hasLyricMatch = collected.some(
+    (result) => result.snippet && matchQuery(parsed.ast, result.snippet, 0).ok,
+  );
+  if (opts.artistId && fromPage === 1 && !hasLyricMatch) {
+    const skip = new Set(collected.map((result) => result.id));
+    const catalog = await searchArtistCatalog(
+      opts.artistId,
+      parsed,
+      opts.role,
+      skip,
+      catalogPage1 ?? undefined,
+    );
+    collected = [...collected, ...catalog.results];
+    scannedPages += 1;
+    nextFromPage = catalog.nextPage;
   }
-  const { scannedPages, nextFromPage } = lyricHits;
 
   if (resolveGeniusApi().mode === "official") {
     await fillSnippetsFromLrclib(collected, parsed);
