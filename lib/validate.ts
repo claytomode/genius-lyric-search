@@ -1,4 +1,4 @@
-export function asIdList(value: string | null, max = 80): number[] {
+export function asIdList(value: string | null, max = 200): number[] {
   if (!value) return [];
   const ids: number[] = [];
   const seen = new Set<number>();
@@ -21,7 +21,7 @@ export function asArtistId(value: string | null): number | undefined {
 export function clampPage(value: string | null) {
   const n = Number(value ?? "1");
   if (!Number.isInteger(n)) return 1;
-  return Math.min(40, Math.max(1, n));
+  return Math.min(200, Math.max(1, n));
 }
 
 export function clip(value: string, max: number) {

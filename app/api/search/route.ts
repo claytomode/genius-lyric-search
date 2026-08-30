@@ -66,6 +66,17 @@ export async function GET(request: NextRequest) {
     });
     return skipIds.length ? noStore(data) : cachedJson(data, 45);
   } catch (error) {
+    if (q.trim() && artistId && skipIds.length) {
+      console.error("Search failed", error);
+      return noStore({
+        results: [],
+        nextFromPage: fromPage,
+        scannedPages: 0,
+        query: q,
+        parsed: null,
+        relaxed: false,
+      });
+    }
     return jsonError("Search failed", 502, error);
   }
 }

@@ -52,7 +52,6 @@ export function ResultsView() {
   const [nextFromPage, setNextFromPage] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [card, setCard] = useState<SearchResult | null>(null);
   const [relaxed, setRelaxed] = useState(false);
   const requestId = useRef(0);
@@ -81,7 +80,6 @@ export function ResultsView() {
     requestId.current += 1;
     setLoading(true);
     setResults([]);
-    setError(null);
     load()
       .then((data) => {
         if (cancelled) return;
@@ -91,7 +89,9 @@ export function ResultsView() {
         warmupResults(data.results, q);
       })
       .catch(() => {
-        if (!cancelled) setError("Can't reach Genius from this server.");
+        if (cancelled) return;
+        setResults([]);
+        setNextFromPage(null);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -118,7 +118,6 @@ export function ResultsView() {
       setNextFromPage(data.nextFromPage);
       warmupResults(data.results, q);
     } catch {
-      if (id === requestId.current) setError("Can't reach Genius from this server.");
     } finally {
       if (id === requestId.current) setLoadingMore(false);
     }
@@ -155,12 +154,7 @@ export function ResultsView() {
           Searching Genius...
         </p>
       ) : null}
-      {error ? (
-        <p className="status error" role="status">
-          {error}
-        </p>
-      ) : null}
-      {!loading && !error && results.length === 0 ? (
+      {!loading && results.length === 0 ? (
         <p className="status" role="status">
           No matches in the pages Genius returned. Try a more specific line
           {artistName ? `, or drop the ${artistName} filter` : ""}.

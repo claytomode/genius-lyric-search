@@ -296,10 +296,6 @@ select {
   font-size: 14px;
 }
 
-.status.error {
-  color: var(--lead);
-}
-
 .results {
   display: flex;
   flex-direction: column;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { toPng } from "html-to-image";
+import { toBlob } from "html-to-image";
 import { LyricCard } from "./LyricCard";
 import { linesFromSnippet, type LyricRow } from "@/lib/excerpt";
 import { photosFromResult, proxyArt, listArtUrl, type CardPhoto } from "@/lib/cardPhotos";
@@ -92,7 +92,8 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   const [photos, setPhotos] = useState<CardPhoto[]>(() => photosFromResult(result));
   const [photoId, setPhotoId] = useState(() => photosFromResult(result)[0]?.id ?? "");
   const [size, setSize] = useState<"s" | "m" | "l">("m");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"save" | "copy" | false>(false);
+  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const chosen = photos.find((photo) => photo.id === photoId) ?? photos[0];
   const proxiedArt = proxyArt(chosen?.url ?? null);
@@ -207,24 +208,58 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
     };
   }, []);
 
+  async function renderCard() {
+    if (!cardRef.current) return null;
+    const node = cardRef.current;
+    const images = Array.from(node.querySelectorAll("img"));
+    await Promise.all(
+      images.map((img) => (img.complete ? Promise.resolve() : img.decode().catch(() => undefined))),
+    );
+    return toBlob(node, {
+      pixelRatio: 3,
+      cacheBust: true,
+      backgroundColor: "#000",
+    });
+  }
+
   async function download() {
-    if (!cardRef.current) return;
-    setBusy(true);
+    setBusy("save");
     try {
-      const node = cardRef.current;
-      const images = Array.from(node.querySelectorAll("img"));
-      await Promise.all(
-        images.map((img) => (img.complete ? Promise.resolve() : img.decode().catch(() => undefined))),
-      );
-      const dataUrl = await toPng(node, {
-        pixelRatio: 3,
-        cacheBust: true,
-        backgroundColor: "#000",
-      });
+      const blob = await renderCard();
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = dataUrl;
+      link.href = url;
       link.download = `${result.title.replace(/[^\w]+/g, "-").toLowerCase()}-lyric-card.png`;
       link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyCard() {
+    if (!quote.length) return;
+    setBusy("copy");
+    try {
+      const blob = await renderCard();
+      if (blob && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(quote.join("\n"));
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(quote.join("\n"));
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      } catch {
+        setCopied(false);
+      }
     } finally {
       setBusy(false);
     }
@@ -305,15 +340,18 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
           ) : null}
           <div className="card-actions">
             <label className="filter">
-              <span>Type</span>
+              <span>Text</span>
               <select value={size} onChange={(e) => setSize(e.target.value as "s" | "m" | "l")}>
                 <option value="s">Small</option>
                 <option value="m">Medium</option>
                 <option value="l">Large</option>
               </select>
             </label>
-            <button type="button" onClick={download} disabled={busy || quote.length === 0}>
-              {busy ? "Saving..." : "Download PNG"}
+            <button type="button" onClick={copyCard} disabled={busy !== false || quote.length === 0}>
+              {copied ? "Copied" : busy === "copy" ? "Copying..." : "Copy"}
+            </button>
+            <button type="button" onClick={download} disabled={busy !== false || quote.length === 0}>
+              {busy === "save" ? "Saving..." : "Download PNG"}
             </button>
             <button type="button" onClick={onClose}>
               Close

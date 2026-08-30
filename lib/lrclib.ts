@@ -27,22 +27,26 @@ export async function lyricsFromLrclib(opts: {
   url.searchParams.set("track_name", opts.title);
   url.searchParams.set("artist_name", opts.artist);
 
-  const res = await fetch(url, {
-    headers: { "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)" },
-    redirect: "error",
-    signal: AbortSignal.timeout(4000),
-    cache: "force-cache",
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) {
-    mem.set(key, null);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "LyricSearch/1.0 (https://github.com/claytomode/genius-lyric-search)" },
+      redirect: "error",
+      signal: AbortSignal.timeout(4000),
+      cache: "force-cache",
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) {
+      mem.set(key, null);
+      return null;
+    }
+    const hits = (await res.json()) as LrcHit[];
+    const exact = hits.find(
+      (hit) => hit.plainLyrics && same(hit.trackName ?? "", opts.title) && same(hit.artistName ?? "", opts.artist),
+    );
+    const lyrics = exact?.plainLyrics ?? hits.find((hit) => hit.plainLyrics)?.plainLyrics ?? null;
+    mem.set(key, lyrics);
+    return lyrics;
+  } catch {
     return null;
   }
-  const hits = (await res.json()) as LrcHit[];
-  const exact = hits.find(
-    (hit) => hit.plainLyrics && same(hit.trackName ?? "", opts.title) && same(hit.artistName ?? "", opts.artist),
-  );
-  const lyrics = exact?.plainLyrics ?? hits.find((hit) => hit.plainLyrics)?.plainLyrics ?? null;
-  mem.set(key, lyrics);
-  return lyrics;
 }
