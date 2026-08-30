@@ -3,6 +3,7 @@
 import { FormEvent, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArtistPicker, type PickedArtist } from "./ArtistPicker";
+import { InfoTip } from "./InfoTip";
 import type { ArtistRole, SortMode } from "@/lib/types";
 
 export type SearchValues = {
@@ -68,17 +69,7 @@ export function SearchForm({ values, onChange, compact, requireArtist = false }:
           <span className="filter-label">
             Artist
             {requireArtist ? (
-              <button
-                type="button"
-                className="info-tip"
-                aria-label="This host can't search every Genius lyric. Pick an artist and we'll scan songs they're on as a lead or a feature."
-              >
-                i
-                <span className="info-tip-text" aria-hidden="true">
-                  This host can&apos;t search every Genius lyric. Pick an artist and we&apos;ll
-                  scan songs they&apos;re on as a lead or a feature.
-                </span>
-              </button>
+              <InfoTip label="Genius's public search API is blocked from Vercel IPs, so an artist is required here. Run it locally to skip this and search faster." />
             ) : null}
           </span>
           <ArtistPicker
