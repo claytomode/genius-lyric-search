@@ -564,7 +564,11 @@ select {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.card-preview {
+  flex-shrink: 0;
 }
 
 .genius-card {
@@ -650,6 +654,10 @@ select {
     overflow: auto;
   }
 
+  .card-side {
+    overflow: visible;
+  }
+
   .card-lines {
     min-height: 160px;
     max-height: 40vh;
@@ -660,6 +668,8 @@ select {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-height: 0;
+  overflow: auto;
 }
 
 .card-photo {
@@ -702,6 +712,7 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   align-items: flex-end;
+  flex-shrink: 0;
 }
 
 .card-actions .filter {

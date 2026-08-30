@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { toBlob } from "html-to-image";
 import { LyricCard } from "./LyricCard";
 import { linesFromSnippet, type LyricRow } from "@/lib/excerpt";
@@ -71,7 +71,7 @@ function quoteFromSelection(root: HTMLElement): PickedLine[] | null {
   return lines.length ? lines.slice(0, 8) : null;
 }
 
-export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) {
+export const LyricCardModal = memo(function LyricCardModal({ result, query, onClose }: LyricCardModalProps) {
   const artist =
     result.featuredArtists.length > 0
       ? `${result.primaryArtist} ft. ${result.featuredArtists.join(", ")}`
@@ -99,6 +99,8 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   const chosen = photos.find((photo) => photo.id === photoId) ?? photos[0];
   const proxiedArt = proxyArt(chosen?.url ?? null);
   const quote = picked.map((item) => item.fragment);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const root = studioRef.current;
@@ -114,7 +116,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !root) return;
@@ -136,7 +138,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
       window.removeEventListener("keydown", onKey);
       previous?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     scrolledRef.current = false;
@@ -314,7 +316,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
           </div>
         </div>
         <div className="card-side">
-          <div ref={cardRef}>
+          <div className="card-preview" ref={cardRef}>
             <LyricCard
               art={proxiedArt}
               lines={quote}
@@ -376,4 +378,4 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
       </div>
     </div>
   );
-}
+});

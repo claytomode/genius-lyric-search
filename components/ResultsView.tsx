@@ -56,6 +56,7 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
   const [scanning, setScanning] = useState(false);
   const [scanPct, setScanPct] = useState(0);
   const [card, setCard] = useState<SearchResult | null>(null);
+  const closeCard = useCallback(() => setCard(null), []);
   const [relaxed, setRelaxed] = useState(false);
   const [scanNonce, setScanNonce] = useState(0);
   const requestId = useRef(0);
@@ -292,7 +293,7 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
         </button>
       ) : null}
 
-      {card ? <LyricCardModal result={card} query={q} onClose={() => setCard(null)} /> : null}
+      {card ? <LyricCardModal result={card} query={q} onClose={closeCard} /> : null}
     </div>
   );
 }
