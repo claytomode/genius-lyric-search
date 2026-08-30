@@ -29,9 +29,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function geniusGet<T>(path: string, params: Record<string, string | number | undefined>) {
+async function geniusGet<T>(
+  path: string,
+  params: Record<string, string | number | undefined>,
+  originOverride?: string,
+) {
   const { origin, token } = resolveGeniusApi();
-  const url = new URL(`${origin}/${path}`);
+  const url = new URL(`${originOverride ?? origin}/${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
@@ -75,10 +79,29 @@ async function geniusGet<T>(path: string, params: Record<string, string | number
 export async function searchArtists(q: string): Promise<GeniusArtist[]> {
   const { mode } = resolveGeniusApi();
   if (mode === "official") {
+    try {
+      const response = await geniusGet<{
+        sections: { hits: { result: GeniusArtist }[] }[];
+      }>("search/artist", { q, per_page: 8 }, "https://genius.com/api");
+      const artists = (response.sections?.[0]?.hits ?? []).map((hit) => hit.result);
+      if (artists.length) return artists;
+    } catch {
+      // Fall through to official song search.
+    }
     const response = await geniusGet<{ hits: { result: GeniusSong }[] }>("search", {
       q,
       per_page: 8,
     });
+    const artists: GeniusArtist[] = [];
+    const seen = new Set<number>();
+    for (const hit of response.hits ?? []) {
+      const artist = hit.result?.primary_artist;
+      if (!artist?.id || seen.has(artist.id)) continue;
+      seen.add(artist.id);
+      artists.push(artist);
+    }
+    return artists;
+  }
     const artists: GeniusArtist[] = [];
     const seen = new Set<number>();
     for (const hit of response.hits ?? []) {
@@ -182,9 +205,28 @@ type LyricSearchResponse = {
   next_page?: number | null;
 };
 
+function lyricHitsFromResponse(response: LyricSearchResponse) {
+  const section = response.sections?.[0];
+  return {
+    hits: section?.hits ?? response.hits ?? [],
+    nextPage: section?.next_page ?? response.next_page ?? null,
+  };
+}
+
 async function lyricPage(q: string, page: number) {
   const { mode } = resolveGeniusApi();
   if (mode === "official") {
+    try {
+      const response = await geniusGet<LyricSearchResponse>(
+        "search/lyric",
+        { q, per_page: GENIUS_PER_PAGE, page },
+        "https://genius.com/api",
+      );
+      const hits = lyricHitsFromResponse(response);
+      if (hits.hits.length) return hits;
+    } catch {
+      // Website lyric search is blocked from some cloud IPs even with a token.
+    }
     const response = await geniusGet<{
       hits?: { result: GeniusSong }[];
       next_page?: number | null;
@@ -202,11 +244,7 @@ async function lyricPage(q: string, page: number) {
     per_page: GENIUS_PER_PAGE,
     page,
   });
-  const section = response.sections?.[0];
-  return {
-    hits: section?.hits ?? response.hits ?? [],
-    nextPage: section?.next_page ?? response.next_page ?? null,
-  };
+  return lyricHitsFromResponse(response);
 }
 
 function snippetFromLyrics(
@@ -361,15 +399,16 @@ async function searchArtistSongTitles(
   q: string,
   role: ArtistRole,
 ): Promise<SearchResult[]> {
+  const webOrigin = resolveGeniusApi().mode === "official" ? "https://genius.com/api" : undefined;
   const collected: SearchResult[] = [];
   let page = 1;
   for (let scanned = 0; scanned < 3; scanned += 1) {
     try {
-      const response = await geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs/search`, {
-        q,
-        per_page: 20,
-        page,
-      });
+      const response = await geniusGet<ArtistSongsResponse>(
+        `artists/${artistId}/songs/search`,
+        { q, per_page: 20, page },
+        webOrigin,
+      );
       for (const song of response.songs ?? []) {
         if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
         const credited = roleOnSong(song, artistId);
