@@ -102,16 +102,6 @@ export async function searchArtists(q: string): Promise<GeniusArtist[]> {
     }
     return artists;
   }
-    const artists: GeniusArtist[] = [];
-    const seen = new Set<number>();
-    for (const hit of response.hits ?? []) {
-      const artist = hit.result?.primary_artist;
-      if (!artist?.id || seen.has(artist.id)) continue;
-      seen.add(artist.id);
-      artists.push(artist);
-    }
-    return artists;
-  }
 
   const response = await geniusGet<{
     sections: { hits: { result: GeniusArtist }[] }[];
