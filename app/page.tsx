@@ -15,6 +15,10 @@ export default function Home() {
         <a href="https://genius.com" target="_blank" rel="noopener noreferrer">
           genius.com
         </a>
+        . Source on{" "}
+        <a href="https://github.com/claytomode/genius-lyric-search" target="_blank" rel="noopener noreferrer">
+          GitHub
+        </a>
         .
       </footer>
     </main>

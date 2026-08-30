@@ -749,6 +749,14 @@ select {
   text-decoration: none;
 }
 
+.site-header .site-source {
+  font-family: var(--font-ui), "Source Sans 3", sans-serif;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .foot {
   align-self: stretch;
   margin-top: auto;

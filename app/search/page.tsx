@@ -10,6 +10,14 @@ export default function SearchPage() {
     <main className="shell">
       <header className="site-header">
         <Link href="/">Lyric Search</Link>
+        <a
+          className="site-source"
+          href="https://github.com/claytomode/genius-lyric-search"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          GitHub
+        </a>
       </header>
       <Suspense fallback={<p className="status">Loading...</p>}>
         <ResultsView requireArtist={requireArtist} />
