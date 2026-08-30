@@ -7,9 +7,10 @@ export type PickedArtist = { id: number; name: string; image: string | null };
 type ArtistPickerProps = {
   value: PickedArtist | null;
   onChange: (artist: PickedArtist | null) => void;
+  required?: boolean;
 };
 
-export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
+export function ArtistPicker({ value, onChange, required = false }: ArtistPickerProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState<PickedArtist[]>([]);
@@ -73,7 +74,7 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
     <div className="artist-picker" ref={boxRef}>
       <input
         type="search"
-        placeholder="Artist"
+        placeholder={required ? "Required" : "Artist"}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -82,8 +83,8 @@ export function ArtistPicker({ value, onChange }: ArtistPickerProps) {
         onFocus={() => results.length && setOpen(true)}
         autoComplete="off"
         aria-label="Filter by artist"
+        aria-required={required || undefined}
         aria-expanded={open}
-        aria-haspopup="menu"
       />
       {open && (results.length > 0 || loading) ? (
         <ul className="artist-menu">

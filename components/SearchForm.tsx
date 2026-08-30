@@ -18,15 +18,16 @@ type SearchFormProps = {
   values: SearchValues;
   onChange: (values: SearchValues) => void;
   compact?: boolean;
+  requireArtist?: boolean;
 };
 
-export function SearchForm({ values, onChange, compact }: SearchFormProps) {
+export function SearchForm({ values, onChange, compact, requireArtist = false }: SearchFormProps) {
   const router = useRouter();
 
-  const canSubmit = useMemo(
-    () => values.q.trim().length > 0 || Boolean(values.artist),
-    [values.q, values.artist],
-  );
+  const canSubmit = useMemo(() => {
+    if (requireArtist) return Boolean(values.artist);
+    return values.q.trim().length > 0 || Boolean(values.artist);
+  }, [requireArtist, values.q, values.artist]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -64,10 +65,11 @@ export function SearchForm({ values, onChange, compact }: SearchFormProps) {
 
       <div className="filter-row">
         <div className="filter">
-          <span>Artist</span>
+          <span>{requireArtist ? "Artist (required)" : "Artist"}</span>
           <ArtistPicker
             value={values.artist}
             onChange={(artist) => onChange({ ...values, artist })}
+            required={requireArtist}
           />
         </div>
         <label className="filter">

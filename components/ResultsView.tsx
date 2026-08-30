@@ -18,7 +18,7 @@ function sortFromParam(value: string | null): SortMode {
   return "views";
 }
 
-export function ResultsView() {
+export function ResultsView({ requireArtist = false }: { requireArtist?: boolean }) {
   const params = useSearchParams();
   const q = params.get("q") ?? "";
   const artistId = params.get("artist");
@@ -77,9 +77,18 @@ export function ResultsView() {
     return fetchSearch<SearchResponse>(url);
   }, [queryString]);
 
+  const blocked = requireArtist && Boolean(q) && !artistId;
+
   useEffect(() => {
     let cancelled = false;
     requestId.current += 1;
+    if (blocked) {
+      setResults([]);
+      setNextFromPage(null);
+      setRelaxed(false);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setResults([]);
     load()
@@ -101,7 +110,7 @@ export function ResultsView() {
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, blocked, q]);
 
   async function loadMore() {
     if (!nextFromPage) return;
@@ -144,8 +153,14 @@ export function ResultsView() {
 
   return (
     <div className="results-page">
-      <SearchForm values={values} onChange={setValues} compact />
+      <SearchForm values={values} onChange={setValues} compact requireArtist={requireArtist} />
       <p className="summary">{summary}</p>
+      {blocked ? (
+        <p className="hint">
+          This host can&apos;t search every Genius lyric. Pick an artist — lead or featured — and
+          we&apos;ll scan their songs for that line.
+        </p>
+      ) : null}
       {creditHint ? <p className="hint">{creditHint}</p> : null}
       {relaxed ? (
         <p className="hint">No exact hits — showing near misses (one-character typos).</p>
@@ -156,10 +171,13 @@ export function ResultsView() {
           Searching Genius...
         </p>
       ) : null}
-      {!loading && results.length === 0 ? (
+      {!loading && results.length === 0 && !blocked ? (
         <p className="status" role="status">
-          No matches in the pages Genius returned. Try a more specific line
-          {artistName ? `, or drop the ${artistName} filter` : ""}.
+          {requireArtist
+            ? "No matches in their songs. Try a more specific line, or Search deeper."
+            : `No matches in the pages Genius returned. Try a more specific line${
+                artistName ? `, or drop the ${artistName} filter` : ""
+              }.`}
         </p>
       ) : null}
 

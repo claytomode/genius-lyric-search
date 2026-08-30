@@ -85,6 +85,15 @@ select {
   width: min(720px, 100%);
 }
 
+.home .limit-note {
+  width: min(720px, 100%);
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.45;
+}
+
 .search-form {
   display: flex;
   flex-direction: column;

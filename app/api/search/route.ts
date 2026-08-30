@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { listArtistSongs, searchLyrics } from "@/lib/genius";
+import { geniusSearchNeedsArtist } from "@/lib/geniusApi";
 import { jsonError, noStore, cachedJson, tooMany } from "@/lib/http";
 import { asArtistId, asDate, asIdList, clampPage, clip } from "@/lib/validate";
 import type { ArtistRole, SortMode } from "@/lib/types";
@@ -52,6 +53,13 @@ export async function GET(request: NextRequest) {
         parsed: null,
         relaxed: false,
       });
+    }
+
+    if (geniusSearchNeedsArtist() && !artistId) {
+      return jsonError(
+        "Pick an artist. This host can only scan songs they're on as a lead or a feature.",
+        400,
+      );
     }
 
     const data = await searchLyrics({

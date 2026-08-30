@@ -17,7 +17,11 @@ const EXAMPLES: { q: string; label: string; artist?: { id: number; name: string 
   },
 ];
 
-export function HomeSearch() {
+type HomeSearchProps = {
+  requireArtist?: boolean;
+};
+
+export function HomeSearch({ requireArtist = false }: HomeSearchProps) {
   const [values, setValues] = useState<SearchValues>({
     q: "",
     artist: null,
@@ -27,14 +31,30 @@ export function HomeSearch() {
     to: "",
   });
 
+  const examples = EXAMPLES.map((example) =>
+    requireArtist && !example.artist
+      ? {
+          ...example,
+          artist: { id: 130, name: "Drake" },
+          label: "Drake started from the bottom",
+        }
+      : example,
+  );
+
   return (
     <>
-      <SearchForm values={values} onChange={setValues} />
+      <SearchForm values={values} onChange={setValues} requireArtist={requireArtist} />
+      {requireArtist ? (
+        <p className="limit-note">
+          This host can&apos;t search every Genius lyric. Pick an artist and we&apos;ll scan songs
+          they&apos;re on as a lead or a feature.
+        </p>
+      ) : null}
       <p className="examples">
         Try{" "}
-        {EXAMPLES.map((example, index) => (
+        {examples.map((example, index) => (
           <span key={example.label}>
-            {index > 0 ? (index === EXAMPLES.length - 1 ? ", or " : ", ") : null}
+            {index > 0 ? (index === examples.length - 1 ? ", or " : ", ") : null}
             <button
               type="button"
               onClick={() =>
