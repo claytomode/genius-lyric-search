@@ -14,6 +14,8 @@ import { matchQuery } from "./match";
 import { resolveGeniusApi } from "./geniusApi";
 import { lyricsFromLrclib } from "./lrclib";
 import { rankResults } from "./rank";
+import { artistsFromSongHits } from "./artists";
+import { snippetForQuery } from "./excerpt";
 
 const HEADERS = {
   Accept: "application/json",
@@ -93,17 +95,9 @@ export async function searchArtists(q: string): Promise<GeniusArtist[]> {
   if (mode === "official") {
     const response = await geniusGet<{ hits: { result: GeniusSong }[] }>("search", {
       q,
-      per_page: 8,
+      per_page: 20,
     });
-    const artists: GeniusArtist[] = [];
-    const seen = new Set<number>();
-    for (const hit of response.hits ?? []) {
-      const artist = hit.result?.primary_artist;
-      if (!artist?.id || seen.has(artist.id)) continue;
-      seen.add(artist.id);
-      artists.push(artist);
-    }
-    return artists;
+    return artistsFromSongHits(response.hits ?? [], q);
   }
 
   const response = await geniusGet<{
@@ -234,27 +228,7 @@ function snippetFromLyrics(
   lyrics: string,
   parsed: ReturnType<typeof parseQuery>,
 ): { snippet: string; ranges: { start: number; end: number }[] } {
-  const hit = matchQuery(parsed.ast, lyrics, 0);
-  if (hit.ok && hit.ranges.length) {
-    const first = Math.min(...hit.ranges.map((range) => range.start));
-    const last = Math.max(...hit.ranges.map((range) => range.end));
-    let start = lyrics.lastIndexOf("\n", first);
-    start = start < 0 ? 0 : start + 1;
-    let end = lyrics.indexOf("\n", last);
-    if (end < 0) end = lyrics.length;
-    const snippet = lyrics.slice(start, end).trim();
-    return {
-      snippet,
-      ranges: hit.ranges
-        .map((range) => ({ start: range.start - start, end: range.end - start }))
-        .filter((range) => range.end > 0 && range.start < snippet.length),
-    };
-  }
-  const lines = lyrics
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !/^\[[^\]]+\]$/.test(line));
-  return { snippet: lines.slice(0, 6).join("\n"), ranges: [] };
+  return snippetForQuery(lyrics, parsed.ast);
 }
 
 async function lyricsMatch(

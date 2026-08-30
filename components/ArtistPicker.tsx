@@ -20,12 +20,14 @@ export function ArtistPicker({ value, onChange, required = false }: ArtistPicker
   useEffect(() => {
     if (!query.trim() || value) {
       setResults([]);
+      setLoading(false);
       return;
     }
 
+    setResults([]);
+    setLoading(true);
     const controller = new AbortController();
     const timer = setTimeout(async () => {
-      setLoading(true);
       try {
         const res = await fetch(`/api/artists?q=${encodeURIComponent(query)}`, {
           signal: controller.signal,
@@ -86,9 +88,12 @@ export function ArtistPicker({ value, onChange, required = false }: ArtistPicker
         aria-required={required || undefined}
         aria-expanded={open}
       />
-      {open && (results.length > 0 || loading) ? (
+      {open && (results.length > 0 || loading || query.trim()) ? (
         <ul className="artist-menu">
           {loading && results.length === 0 ? <li className="muted">Searching...</li> : null}
+          {!loading && results.length === 0 && query.trim() ? (
+            <li className="muted">No matching artists</li>
+          ) : null}
           {results.map((artist) => (
             <li key={artist.id}>
               <button

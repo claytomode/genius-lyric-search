@@ -95,6 +95,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   const [busy, setBusy] = useState<"save" | "copy" | false>(false);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
+  const scrolledRef = useRef(false);
   const chosen = photos.find((photo) => photo.id === photoId) ?? photos[0];
   const proxiedArt = proxyArt(chosen?.url ?? null);
   const quote = picked.map((item) => item.fragment);
@@ -138,6 +139,8 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   }, [onClose]);
 
   useEffect(() => {
+    scrolledRef.current = false;
+    setLoading(true);
     let cancelled = false;
     prefetchExcerpt(result, query)
       .then((data) => {
@@ -162,6 +165,18 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
       cancelled = true;
     };
   }, [result, query]);
+
+  useEffect(() => {
+    scrolledRef.current = false;
+  }, [result.id]);
+
+  useEffect(() => {
+    if (loading || scrolledRef.current) return;
+    const mark = lyricsRef.current?.querySelector("mark");
+    if (!mark) return;
+    mark.scrollIntoView({ block: "center", inline: "nearest" });
+    scrolledRef.current = true;
+  }, [loading, rows]);
 
   useEffect(() => {
     let cancelled = false;
