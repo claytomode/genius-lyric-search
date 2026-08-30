@@ -18,12 +18,28 @@ const HEADERS = {
 };
 
 const GENIUS_PER_PAGE = 20;
-const MAX_SCAN_PAGES = 4;
+const CATALOG_PAGES = 4;
+const CATALOG_LYRIC_CONCURRENCY = 8;
 
 type GeniusEnvelope<T> = {
   meta: { status: number };
   response: T;
 };
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      out[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return out;
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -384,34 +400,48 @@ type ArtistSongsResponse = {
   next_page: number | null;
 };
 
-async function searchArtistSongTitles(
-  artistId: number,
-  q: string,
-  role: ArtistRole,
-): Promise<SearchResult[]> {
-  const webOrigin = resolveGeniusApi().mode === "official" ? "https://genius.com/api" : undefined;
-  const collected: SearchResult[] = [];
+type CatalogSong = { song: GeniusSong; role: "lead" | "featured" };
+
+async function collectArtistSongs(artistId: number, role: ArtistRole): Promise<CatalogSong[]> {
+  const collected: CatalogSong[] = [];
   let page = 1;
-  for (let scanned = 0; scanned < 3; scanned += 1) {
-    try {
-      const response = await geniusGet<ArtistSongsResponse>(
-        `artists/${artistId}/songs/search`,
-        { q, per_page: 20, page },
-        webOrigin,
-      );
-      for (const song of response.songs ?? []) {
-        if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
-        const credited = roleOnSong(song, artistId);
-        if (!credited || !matchesRole(credited, role)) continue;
-        collected.push(toResult(song, credited));
-      }
-      if (!response.next_page) break;
-      page = response.next_page;
-    } catch {
-      break;
+  for (let scanned = 0; scanned < CATALOG_PAGES; scanned += 1) {
+    const response = await geniusGet<ArtistSongsResponse>(`artists/${artistId}/songs`, {
+      per_page: 50,
+      page,
+      sort: "popularity",
+    });
+    for (const song of response.songs ?? []) {
+      if (isJunkTitle(song.title) || song.lyrics_state === "unreleased") continue;
+      const credited = roleOnSong(song, artistId);
+      if (!credited || !matchesRole(credited, role)) continue;
+      collected.push({ song, role: credited });
     }
+    if (!response.next_page) break;
+    page = response.next_page;
   }
   return collected;
+}
+
+async function searchArtistCatalog(
+  artistId: number,
+  parsed: ReturnType<typeof parseQuery>,
+  role: ArtistRole,
+): Promise<SearchResult[]> {
+  const songs = await collectArtistSongs(artistId, role);
+  const matches = await mapLimit(songs, CATALOG_LYRIC_CONCURRENCY, async ({ song, role: credit }) => {
+    const result = toResult(song, credit);
+    const titleHit = matchQuery(parsed.ast, `${song.title}\n${song.full_title ?? ""}`, 0);
+    if (titleHit.ok) return result;
+    const artistName = song.primary_artist?.name ?? song.artist_names;
+    const lyrics = await lyricsFromLrclib({ title: song.title, artist: artistName });
+    if (!lyrics) return null;
+    const lyricHit = matchQuery(parsed.ast, lyrics, 0);
+    if (!lyricHit.ok) return null;
+    const cut = snippetFromLyrics(lyrics, parsed);
+    return { ...result, snippet: cut.snippet, ranges: cut.ranges };
+  });
+  return matches.filter((result): result is SearchResult => result !== null);
 }
 
 export async function searchLyrics(opts: {
@@ -447,10 +477,10 @@ export async function searchLyrics(opts: {
       artistId: opts.artistId,
       role: opts.role,
       fromPage,
-      maxPages: MAX_SCAN_PAGES,
+      maxPages: 1,
     }),
     opts.artistId && fromPage === 1
-      ? searchArtistSongTitles(opts.artistId, query, opts.role)
+      ? searchArtistCatalog(opts.artistId, parsed, opts.role)
       : Promise.resolve([] as SearchResult[]),
   ]);
 
