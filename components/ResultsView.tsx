@@ -19,6 +19,19 @@ function sortFromParam(value: string | null): SortMode {
   return "views";
 }
 
+function resultSummary(q: string, artistName: string, count: number, showCount: boolean) {
+  const countLabel = count === 1 ? "1 result" : `${count} results`;
+  if (!q && artistName && !showCount) return `Songs with ${artistName}`;
+  const head = showCount
+    ? q
+      ? `${countLabel} for "${q}"`
+      : countLabel
+    : q
+      ? `Results for "${q}"`
+      : "Results";
+  return artistName ? `${head} · ${artistName}` : head;
+}
+
 export function ResultsView({ requireArtist = false }: { requireArtist?: boolean }) {
   const params = useSearchParams();
   const q = params.get("q") ?? "";
@@ -206,13 +219,12 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
     }
   }
 
-  const summary = q
-    ? artistName
-      ? `Results for "${q}" · ${artistName}`
-      : `Results for "${q}"`
-    : artistName
-      ? `Songs with ${artistName}`
-      : "Results";
+  const summary = resultSummary(
+    q,
+    artistName,
+    results.length,
+    !blocked && !(loading && results.length === 0),
+  );
 
   const creditHint =
     role === "featured"
@@ -226,7 +238,9 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
   return (
     <div className="results-page">
       <SearchForm values={values} onChange={setValues} compact requireArtist={requireArtist} />
-      <p className="summary">{summary}</p>
+      <p className="summary" aria-live="polite">
+        {summary}
+      </p>
       {blocked ? (
         <p className="hint">Pick an artist to search that line.</p>
       ) : null}
