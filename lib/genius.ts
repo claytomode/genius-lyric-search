@@ -19,12 +19,13 @@ const HEADERS = {
 };
 
 const GENIUS_PER_PAGE = 20;
-const CATALOG_PAGES = 6;
+const CATALOG_PAGES = 2;
 const CATALOG_DEEPER_PAGES = 30;
-const CATALOG_LYRIC_CONCURRENCY = 16;
-const CATALOG_FIRST_LIMIT = 12;
+const CATALOG_LYRIC_CONCURRENCY = 24;
+const CATALOG_FIRST_LIMIT = 6;
 const CATALOG_DEEPER_LIMIT = 20;
-const CATALOG_BUDGET_MS = 22_000;
+const CATALOG_FIRST_BUDGET_MS = 8_000;
+const CATALOG_DEEPER_BUDGET_MS = 20_000;
 
 type GeniusEnvelope<T> = {
   meta: { status: number };
@@ -41,20 +42,22 @@ async function geniusGet<T>(
   originOverride?: string,
 ) {
   const { origin, token } = resolveGeniusApi();
-  const url = new URL(`${originOverride ?? origin}/${path}`);
+  const base = originOverride ?? origin;
+  const url = new URL(`${base}/${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, String(value));
     }
   }
 
+  const official = url.hostname === "api.genius.com";
   const headers: Record<string, string> = { ...HEADERS };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token && official) headers.Authorization = `Bearer ${token}`;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await fetch(url, {
       headers,
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(official ? 8000 : 3000),
       cache: "no-store",
     });
 
@@ -313,23 +316,6 @@ async function lyricsMatch(
   if (!matchQuery(parsed.ast, lyrics, 0).ok) return null;
   const cut = snippetFromLyrics(lyrics, parsed);
   return { ...result, snippet: cut.snippet, ranges: cut.ranges };
-}
-
-async function fillSnippetsFromLrclib(
-  results: SearchResult[],
-  parsed: ReturnType<typeof parseQuery>,
-) {
-  for (const result of results.slice(0, 8)) {
-    if (result.snippet && matchQuery(parsed.ast, result.snippet, 0).ok) continue;
-    const lyrics = await lyricsFromLrclib({
-      title: result.title,
-      artist: result.primaryArtist,
-    });
-    const matched = await lyricsMatch(result, parsed, lyrics);
-    if (!matched) continue;
-    result.snippet = matched.snippet;
-    result.ranges = matched.ranges;
-  }
 }
 
 function decorateResult(
@@ -621,14 +607,13 @@ export async function searchLyrics(opts: {
   const queries = (fetchQs.length ? fetchQs : [query]).slice(0, 2);
   const fromPage = Math.max(1, Math.min(200, opts.fromPage ?? 1));
   const skipIds = opts.skipIds ?? [];
-  const deadline = Date.now() + CATALOG_BUDGET_MS;
 
   if (opts.artistId && skipIds.length) {
     const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, new Set(skipIds), {
       startPage: fromPage,
       maxPages: CATALOG_DEEPER_PAGES,
       matchLimit: CATALOG_DEEPER_LIMIT,
-      deadline,
+      deadline: Date.now() + CATALOG_DEEPER_BUDGET_MS,
     });
     const decorate = (autoFuzz: number) =>
       catalog.results
@@ -653,18 +638,22 @@ export async function searchLyrics(opts: {
   const catalogPage1 =
     opts.artistId && fromPage === 1 ? fetchArtistSongPage(opts.artistId, 1) : null;
 
-  const lyricHits = await collectFromQueries(queries, {
-    artistId: opts.artistId,
-    role: opts.role,
-    fromPage,
-    maxPages: 1,
-  });
+  const titlePagePromise =
+    fromPage === 1 ? songSearchPage(queries[0], 1) : Promise.resolve({ hits: [] as GeniusLyricHit[], nextPage: null });
+  const [lyricHits, titlePage] = await Promise.all([
+    collectFromQueries(queries, {
+      artistId: opts.artistId,
+      role: opts.role,
+      fromPage,
+      maxPages: 1,
+    }),
+    titlePagePromise,
+  ]);
 
   const lyricVerified = await verifyGeniusHits(lyricHits.collected, parsed, 20);
   let titleExtras: SearchResult[] = [];
   if (fromPage === 1) {
     const seen = new Set(lyricVerified.map((result) => result.id));
-    const titlePage = await songSearchPage(queries[0], 1);
     for (const hit of titlePage.hits) {
       const result = keepHit(hit, opts.artistId, opts.role);
       if (!result || seen.has(result.id)) continue;
@@ -677,22 +666,17 @@ export async function searchLyrics(opts: {
   let scannedPages = lyricHits.scannedPages;
   let nextFromPage = opts.artistId ? 1 : lyricHits.nextFromPage;
 
-  const room = CATALOG_FIRST_LIMIT - collected.length;
-  if (opts.artistId && fromPage === 1 && room > 0) {
+  if (opts.artistId && fromPage === 1 && collected.length < 4) {
     const skip = new Set(collected.map((result) => result.id));
     const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, skip, {
       firstPage: catalogPage1 ?? undefined,
       maxPages: CATALOG_PAGES,
-      matchLimit: room,
-      deadline,
+      matchLimit: CATALOG_FIRST_LIMIT,
+      deadline: Date.now() + CATALOG_FIRST_BUDGET_MS,
     });
     collected = [...collected, ...catalog.results];
     scannedPages += 1;
     nextFromPage = catalog.nextPage;
-  }
-
-  if (resolveGeniusApi().mode === "official") {
-    await fillSnippetsFromLrclib(collected, parsed);
   }
 
   const decorate = (autoFuzz: number) =>
