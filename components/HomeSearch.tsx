@@ -44,12 +44,6 @@ export function HomeSearch({ requireArtist = false }: HomeSearchProps) {
   return (
     <>
       <SearchForm values={values} onChange={setValues} requireArtist={requireArtist} />
-      {requireArtist ? (
-        <p className="limit-note">
-          This host can&apos;t search every Genius lyric. Pick an artist and we&apos;ll scan songs
-          they&apos;re on as a lead or a feature.
-        </p>
-      ) : null}
       <p className="examples">
         Try{" "}
         {examples.map((example, index) => (

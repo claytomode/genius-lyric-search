@@ -156,10 +156,7 @@ export function ResultsView({ requireArtist = false }: { requireArtist?: boolean
       <SearchForm values={values} onChange={setValues} compact requireArtist={requireArtist} />
       <p className="summary">{summary}</p>
       {blocked ? (
-        <p className="hint">
-          This host can&apos;t search every Genius lyric. Pick an artist — lead or featured — and
-          we&apos;ll scan their songs for that line.
-        </p>
+        <p className="hint">Pick an artist to search that line.</p>
       ) : null}
       {creditHint ? <p className="hint">{creditHint}</p> : null}
       {relaxed ? (

@@ -65,7 +65,22 @@ export function SearchForm({ values, onChange, compact, requireArtist = false }:
 
       <div className="filter-row">
         <div className="filter">
-          <span>{requireArtist ? "Artist (required)" : "Artist"}</span>
+          <span className="filter-label">
+            Artist
+            {requireArtist ? (
+              <button
+                type="button"
+                className="info-tip"
+                aria-label="This host can't search every Genius lyric. Pick an artist and we'll scan songs they're on as a lead or a feature."
+              >
+                i
+                <span className="info-tip-text" aria-hidden="true">
+                  This host can&apos;t search every Genius lyric. Pick an artist and we&apos;ll
+                  scan songs they&apos;re on as a lead or a feature.
+                </span>
+              </button>
+            ) : null}
+          </span>
           <ArtistPicker
             value={values.artist}
             onChange={(artist) => onChange({ ...values, artist })}
