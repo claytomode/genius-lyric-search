@@ -1,3 +1,17 @@
+export function asIdList(value: string | null, max = 80): number[] {
+  if (!value) return [];
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const part of value.split(",")) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n <= 0 || seen.has(n)) continue;
+    seen.add(n);
+    ids.push(n);
+    if (ids.length >= max) break;
+  }
+  return ids;
+}
+
 export function asArtistId(value: string | null): number | undefined {
   const n = Number(value ?? "");
   if (!Number.isInteger(n) || n <= 0) return undefined;

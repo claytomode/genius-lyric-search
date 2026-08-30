@@ -7,7 +7,7 @@ import { cachedJson, tooMany } from "@/lib/http";
 import { clip } from "@/lib/validate";
 
 export async function GET(request: NextRequest) {
-  const limited = tooMany(request, "excerpt", 20);
+  const limited = tooMany(request, "excerpt", 80);
   if (limited) return limited;
 
   const title = clip(request.nextUrl.searchParams.get("title")?.trim() ?? "", 200);

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { listArtistSongs, searchLyrics } from "@/lib/genius";
-import { jsonError, noStore, tooMany } from "@/lib/http";
-import { asArtistId, asDate, clampPage, clip } from "@/lib/validate";
+import { jsonError, noStore, cachedJson, tooMany } from "@/lib/http";
+import { asArtistId, asDate, asIdList, clampPage, clip } from "@/lib/validate";
 import type { ArtistRole, SortMode } from "@/lib/types";
 
 export const maxDuration = 30;
@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
   const startDate = asDate(searchParams.get("from"));
   const endDate = asDate(searchParams.get("to"));
   const fromPage = clampPage(searchParams.get("fromPage"));
+  const skipIds = asIdList(searchParams.get("skip"));
 
   try {
     if (!q.trim() && artistId) {
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
         endDate,
         fromPage,
       });
-      return noStore(data);
+      return skipIds.length ? noStore(data) : cachedJson(data, 60);
     }
 
     if (!q.trim()) {
@@ -61,8 +62,9 @@ export async function GET(request: NextRequest) {
       startDate,
       endDate,
       fromPage,
+      skipIds,
     });
-    return noStore(data);
+    return skipIds.length ? noStore(data) : cachedJson(data, 45);
   } catch (error) {
     return jsonError("Search failed", 502, error);
   }

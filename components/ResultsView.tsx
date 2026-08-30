@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ResultCard } from "./ResultCard";
 import { SearchForm, type SearchValues } from "./SearchForm";
 import { LyricCardModal } from "./LyricCardModal";
+import { warmupResults, fetchSearch } from "@/lib/prefetch";
 import type { ArtistRole, SearchResponse, SearchResult, SortMode } from "@/lib/types";
 
 function roleFromParam(value: string | null): ArtistRole {
@@ -67,13 +68,12 @@ export function ResultsView() {
     return next.toString();
   }, [q, artistId, role, sort, from, to]);
 
-  const load = useCallback(async (fromPage?: number) => {
+  const load = useCallback(async (fromPage?: number, skipIds?: number[]) => {
     const next = new URLSearchParams(queryString);
     if (fromPage) next.set("fromPage", String(fromPage));
-    const res = await fetch(`/api/search?${next.toString()}`);
-    const data = (await res.json()) as SearchResponse & { error?: string };
-    if (!res.ok) throw new Error(data.error || "Search failed");
-    return data;
+    if (skipIds?.length) next.set("skip", skipIds.join(","));
+    const url = `/api/search?${next.toString()}`;
+    return fetchSearch<SearchResponse>(url);
   }, [queryString]);
 
   useEffect(() => {
@@ -88,6 +88,7 @@ export function ResultsView() {
         setResults(data.results);
         setNextFromPage(data.nextFromPage);
         setRelaxed(Boolean(data.relaxed));
+        warmupResults(data.results, q);
       })
       .catch(() => {
         if (!cancelled) setError("Can't reach Genius from this server.");
@@ -105,13 +106,17 @@ export function ResultsView() {
     const id = requestId.current;
     setLoadingMore(true);
     try {
-      const data = await load(nextFromPage);
+      const data = await load(
+        nextFromPage,
+        artistId ? results.map((result) => result.id) : undefined,
+      );
       if (id !== requestId.current) return;
       setResults((prev) => {
         const seen = new Set(prev.map((r) => r.id));
         return [...prev, ...data.results.filter((r) => !seen.has(r.id))];
       });
       setNextFromPage(data.nextFromPage);
+      warmupResults(data.results, q);
     } catch {
       if (id === requestId.current) setError("Can't reach Genius from this server.");
     } finally {
@@ -168,6 +173,7 @@ export function ResultsView() {
             key={result.id}
             result={result}
             artistName={artistName}
+            query={q}
             priority={index < 3}
             onCard={() => setCard(result)}
           />

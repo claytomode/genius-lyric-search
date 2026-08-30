@@ -1,6 +1,7 @@
 import { HighlightedSnippet } from "./HighlightedSnippet";
 import { matchKindLabel } from "@/lib/match";
 import { listArtUrl, proxyArt } from "@/lib/cardPhotos";
+import { prefetchCardArt, prefetchExcerpt, prefetchPhotos } from "@/lib/prefetch";
 import type { SearchResult } from "@/lib/types";
 
 function formatViews(n: number) {
@@ -27,11 +28,13 @@ function geniusHref(url: string) {
 export function ResultCard({
   result,
   artistName,
+  query,
   onCard,
   priority = false,
 }: {
   result: SearchResult;
   artistName?: string;
+  query?: string;
   onCard?: () => void;
   priority?: boolean;
 }) {
@@ -40,8 +43,14 @@ export function ResultCard({
   const href = geniusHref(result.url);
   const art = listArtUrl(result.artThumb || result.art) ?? proxyArt(result.artThumb || result.art);
 
+  function warmup() {
+    prefetchExcerpt(result, query);
+    prefetchPhotos(result.id);
+    prefetchCardArt(result.art);
+  }
+
   return (
-    <article className="result">
+    <article className="result" onMouseEnter={warmup} onFocus={warmup}>
       {art ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img

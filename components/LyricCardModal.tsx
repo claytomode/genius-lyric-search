@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { LyricCard } from "./LyricCard";
-import { selectedLines, linesFromSnippet, type LyricRow } from "@/lib/excerpt";
+import { linesFromSnippet, type LyricRow } from "@/lib/excerpt";
 import { photosFromResult, proxyArt, listArtUrl, type CardPhoto } from "@/lib/cardPhotos";
-import { parseQuery } from "@/lib/query";
-import { matchQuery } from "@/lib/match";
+import { prefetchExcerpt, prefetchPhotos } from "@/lib/prefetch";
 import type { SearchResult } from "@/lib/types";
 
 type LyricCardModalProps = {
@@ -15,43 +14,28 @@ type LyricCardModalProps = {
   onClose: () => void;
 };
 
-function paintMarks(text: string, ranges: { start: number; end: number }[]) {
-  const parts: { text: string; hit: boolean }[] = [];
-  let cursor = 0;
-  const sorted = [...ranges].sort((a, b) => a.start - b.start);
-  for (const range of sorted) {
-    const start = Math.max(0, Math.min(text.length, range.start));
-    const end = Math.max(start, Math.min(text.length, range.end));
-    if (cursor < start) parts.push({ text: text.slice(cursor, start), hit: false });
-    if (end > start) parts.push({ text: text.slice(start, end), hit: true });
-    cursor = end;
-  }
-  if (cursor < text.length) parts.push({ text: text.slice(cursor), hit: false });
-  return parts.map((part, index) =>
-    part.hit ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>,
+type PickedLine = { id: number; fragment: string };
+
+function paintLine(row: LyricRow, picked: PickedLine[]) {
+  const hit = picked.find((item) => item.id === row.id);
+  if (!hit) return row.text;
+  if (!hit.fragment || hit.fragment === row.text) return <mark>{row.text}</mark>;
+  const index = row.text.indexOf(hit.fragment);
+  if (index < 0) return <mark>{row.text}</mark>;
+  return (
+    <>
+      {row.text.slice(0, index)}
+      <mark>{hit.fragment}</mark>
+      {row.text.slice(index + hit.fragment.length)}
+    </>
   );
 }
 
-function paintLine(text: string, quote: string[], ast: ReturnType<typeof parseQuery>["ast"] | null) {
-  if (ast) {
-    const match = matchQuery(ast, text, 0);
-    if (match.ok && match.ranges.length) return paintMarks(text, match.ranges);
-  }
-  if (!quote.length) return text;
-  if (quote.includes(text)) return <mark>{text}</mark>;
-  for (const piece of quote) {
-    if (piece.length >= 2 && piece !== text && text.includes(piece)) {
-      const index = text.indexOf(piece);
-      return (
-        <>
-          {text.slice(0, index)}
-          <mark>{piece}</mark>
-          {text.slice(index + piece.length)}
-        </>
-      );
-    }
-  }
-  return text;
+function pickFromRange(rows: LyricRow[], start: number, end: number): PickedLine[] {
+  return rows
+    .filter((row) => row.kind === "line" && row.id >= Math.min(start, end) && row.id <= Math.max(start, end))
+    .slice(0, 8)
+    .map((row) => ({ id: row.id, fragment: row.text }));
 }
 
 function lineSlice(el: HTMLElement, range: Range): string {
@@ -72,14 +56,18 @@ function lineSlice(el: HTMLElement, range: Range): string {
   }
 }
 
-function quoteFromSelection(root: HTMLElement): string[] | null {
+function quoteFromSelection(root: HTMLElement): PickedLine[] | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
   const range = sel.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return null;
   const lines = Array.from(root.querySelectorAll<HTMLElement>(".card-line-text"))
-    .map((el) => lineSlice(el, range))
-    .filter((line) => line && !/^\[[^\]]+\]$/.test(line));
+    .map((el) => {
+      const fragment = lineSlice(el, range);
+      const id = Number(el.dataset.id);
+      return { id, fragment };
+    })
+    .filter((line) => Number.isInteger(line.id) && line.fragment && !/^\[[^\]]+\]$/.test(line.fragment));
   return lines.length ? lines.slice(0, 8) : null;
 }
 
@@ -92,8 +80,15 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   const lyricsRef = useRef<HTMLDivElement>(null);
   const studioRef = useRef<HTMLDivElement>(null);
   const mouseUpRef = useRef<(() => void) | null>(null);
-  const [rows, setRows] = useState<LyricRow[]>([]);
-  const [quote, setQuote] = useState<string[]>([]);
+  const snippetRows = linesFromSnippet(result.snippet ?? "", 12).map((text, id) => ({
+    id,
+    kind: "line" as const,
+    text,
+  }));
+  const [rows, setRows] = useState<LyricRow[]>(snippetRows);
+  const [picked, setPicked] = useState<PickedLine[]>(() =>
+    pickFromRange(snippetRows, 0, Math.min(3, Math.max(0, snippetRows.length - 1))),
+  );
   const [photos, setPhotos] = useState<CardPhoto[]>(() => photosFromResult(result));
   const [photoId, setPhotoId] = useState(() => photosFromResult(result)[0]?.id ?? "");
   const [size, setSize] = useState<"s" | "m" | "l">("m");
@@ -101,7 +96,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
   const [loading, setLoading] = useState(true);
   const chosen = photos.find((photo) => photo.id === photoId) ?? photos[0];
   const proxiedArt = proxyArt(chosen?.url ?? null);
-  const ast = query ? parseQuery(query).ast : null;
+  const quote = picked.map((item) => item.fragment);
 
   useEffect(() => {
     const root = studioRef.current;
@@ -143,19 +138,11 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
 
   useEffect(() => {
     let cancelled = false;
-    const params = new URLSearchParams({
-      title: result.title,
-      artist: result.primaryArtist,
-      snippet: result.snippet ?? "",
-    });
-    if (query) params.set("q", query);
-    fetch(`/api/excerpt?${params.toString()}`)
-      .then((res) => res.json())
-      .then((data: { rows?: LyricRow[]; start?: number; end?: number }) => {
-        if (cancelled) return;
-        const next = data.rows ?? [];
-        setRows(next);
-        setQuote(selectedLines(next, data.start ?? 0, data.end ?? 0));
+    prefetchExcerpt(result, query)
+      .then((data) => {
+        if (cancelled || !data?.rows?.length) return;
+        setRows(data.rows);
+        setPicked(pickFromRange(data.rows, data.start ?? 0, data.end ?? 0));
       })
       .catch(() => {
         if (cancelled) return;
@@ -165,7 +152,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
           text,
         }));
         setRows(next);
-        setQuote(selectedLines(next, 0, Math.min(3, next.length - 1)));
+        setPicked(pickFromRange(next, 0, Math.min(3, next.length - 1)));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -177,11 +164,9 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/photos?id=${result.id}`)
-      .then((res) => res.json())
-      .then((data: { photos?: CardPhoto[] }) => {
-        if (cancelled || !data.photos?.length) return;
-        const next = data.photos;
+    prefetchPhotos(result.id)
+      .then((next) => {
+        if (cancelled || !next.length) return;
         setPhotos(next);
         setPhotoId((current) => {
           if (next.some((photo) => photo.id === current)) return current;
@@ -201,7 +186,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
     if (!lyricsRef.current) return;
     const lines = quoteFromSelection(lyricsRef.current);
     if (!lines) return;
-    setQuote(lines);
+    setPicked(lines);
     window.getSelection()?.removeAllRanges();
   }
 
@@ -254,7 +239,7 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
             Lyric card
           </h2>
           <p className="card-picker-hint">Drag to highlight the lyrics you want on the card.</p>
-          {loading ? (
+          {loading && rows.length === 0 ? (
             <p className="status" role="status" aria-busy="true">
               Loading lyrics...
             </p>
@@ -271,8 +256,8 @@ export function LyricCardModal({ result, query, onClose }: LyricCardModalProps) 
                   {row.text}
                 </div>
               ) : (
-                <p key={row.id} className="card-line-text">
-                  {paintLine(row.text, quote, ast)}
+                <p key={row.id} className="card-line-text" data-id={row.id}>
+                  {paintLine(row, picked)}
                 </p>
               ),
             )}

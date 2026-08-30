@@ -4,7 +4,7 @@ import { cachedJson, jsonError, tooMany } from "@/lib/http";
 import { asArtistId } from "@/lib/validate";
 
 export async function GET(request: NextRequest) {
-  const limited = tooMany(request, "photos", 20);
+  const limited = tooMany(request, "photos", 40);
   if (limited) return limited;
 
   const id = asArtistId(request.nextUrl.searchParams.get("id"));

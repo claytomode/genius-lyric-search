@@ -20,6 +20,7 @@ const HEADERS = {
 
 const GENIUS_PER_PAGE = 20;
 const CATALOG_PAGES = 4;
+const CATALOG_DEEPER_PAGES = 12;
 const CATALOG_LYRIC_CONCURRENCY = 16;
 const CATALOG_MATCH_LIMIT = 4;
 
@@ -442,9 +443,10 @@ async function scanCatalogChunk(
   songs: CatalogSong[],
   parsed: ReturnType<typeof parseQuery>,
   skip: Set<number>,
+  room: number,
 ): Promise<SearchResult[]> {
   const found: SearchResult[] = [];
-  for (let i = 0; i < songs.length && found.length < CATALOG_MATCH_LIMIT; ) {
+  for (let i = 0; i < songs.length && found.length < room; ) {
     const chunk = songs.slice(i, i + CATALOG_LYRIC_CONCURRENCY);
     i += chunk.length;
     const batch = await Promise.all(
@@ -462,7 +464,7 @@ async function scanCatalogChunk(
       if (!item || skip.has(item.id)) continue;
       skip.add(item.id);
       found.push(item);
-      if (found.length >= CATALOG_MATCH_LIMIT) break;
+      if (found.length >= room) break;
     }
   }
   return found;
@@ -481,19 +483,20 @@ async function searchArtistCatalog(
   parsed: ReturnType<typeof parseQuery>,
   role: ArtistRole,
   skip: Set<number>,
-  firstPage?: Promise<ArtistSongsResponse>,
+  opts: { firstPage?: Promise<ArtistSongsResponse>; startPage?: number; maxPages: number },
 ): Promise<{ results: SearchResult[]; nextPage: number | null }> {
   const found: SearchResult[] = [];
-  let nextPage: number | null = null;
-  let pending: Promise<ArtistSongsResponse | null> = firstPage ?? fetchArtistSongPage(artistId, 1);
+  let page = opts.startPage ?? 1;
+  let resume: number | null = null;
+  let pending: Promise<ArtistSongsResponse | null> = opts.firstPage ?? fetchArtistSongPage(artistId, page);
 
-  for (let scanned = 0; scanned < CATALOG_PAGES && found.length < CATALOG_MATCH_LIMIT; scanned += 1) {
+  for (let scanned = 0; scanned < opts.maxPages && found.length < CATALOG_MATCH_LIMIT; scanned += 1) {
     const response = await pending;
     if (!response) break;
-    nextPage = response.next_page;
+    const next = response.next_page;
     pending =
-      nextPage && scanned + 1 < CATALOG_PAGES && found.length < CATALOG_MATCH_LIMIT
-        ? fetchArtistSongPage(artistId, nextPage)
+      next && scanned + 1 < opts.maxPages && found.length < CATALOG_MATCH_LIMIT
+        ? fetchArtistSongPage(artistId, next)
         : Promise.resolve(null);
 
     const songs: CatalogSong[] = [];
@@ -503,14 +506,21 @@ async function searchArtistCatalog(
       if (!credited || !matchesRole(credited, role)) continue;
       songs.push({ song, role: credited });
     }
-    found.push(...(await scanCatalogChunk(songs, parsed, skip)));
-    if (!nextPage) {
-      nextPage = null;
+    found.push(...(await scanCatalogChunk(songs, parsed, skip, CATALOG_MATCH_LIMIT - found.length)));
+
+    if (found.length >= CATALOG_MATCH_LIMIT) {
+      resume = page;
       break;
     }
+    if (!next) {
+      resume = null;
+      break;
+    }
+    page = next;
+    resume = next;
   }
 
-  return { results: found.slice(0, CATALOG_MATCH_LIMIT), nextPage };
+  return { results: found.slice(0, CATALOG_MATCH_LIMIT), nextPage: resume };
 }
 
 async function verifyGeniusHits(
@@ -518,7 +528,8 @@ async function verifyGeniusHits(
   parsed: ReturnType<typeof parseQuery>,
 ) {
   const found: SearchResult[] = [];
-  for (let i = 0; i < results.length && found.length < CATALOG_MATCH_LIMIT; ) {
+  const cap = 20;
+  for (let i = 0; i < results.length && found.length < cap; ) {
     const chunk = results.slice(i, i + CATALOG_LYRIC_CONCURRENCY);
     i += chunk.length;
     const batch = await Promise.all(
@@ -537,7 +548,7 @@ async function verifyGeniusHits(
     );
     for (const item of batch) {
       if (item) found.push(item);
-      if (found.length >= CATALOG_MATCH_LIMIT) break;
+      if (found.length >= cap) break;
     }
   }
   return found;
@@ -551,6 +562,7 @@ export async function searchLyrics(opts: {
   startDate?: string;
   endDate?: string;
   fromPage?: number;
+  skipIds?: number[];
 }) {
   const query = opts.q.trim();
   if (!query) {
@@ -570,6 +582,33 @@ export async function searchLyrics(opts: {
     .filter(Boolean);
   const queries = (fetchQs.length ? fetchQs : [query]).slice(0, 2);
   const fromPage = Math.max(1, Math.min(40, opts.fromPage ?? 1));
+  const skipIds = opts.skipIds ?? [];
+
+  if (opts.artistId && skipIds.length) {
+    const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, new Set(skipIds), {
+      startPage: fromPage,
+      maxPages: CATALOG_DEEPER_PAGES,
+    });
+    const decorate = (autoFuzz: number) =>
+      catalog.results
+        .map((result) => decorateResult(result, parsed, autoFuzz))
+        .filter((result): result is SearchResult => result !== null);
+    let decorated = decorate(0);
+    let relaxed = false;
+    if (!decorated.length && parsed.explicit) {
+      decorated = decorate(1);
+      relaxed = decorated.length > 0;
+    }
+    return {
+      results: applyDateAndSort(decorated, opts.startDate, opts.endDate, opts.sort),
+      nextFromPage: catalog.nextPage,
+      scannedPages: 1,
+      query,
+      parsed: formatQuery(parsed.ast),
+      relaxed,
+    };
+  }
+
   const catalogPage1 =
     opts.artistId && fromPage === 1 ? fetchArtistSongPage(opts.artistId, 1) : null;
 
@@ -582,20 +621,17 @@ export async function searchLyrics(opts: {
 
   let collected = await verifyGeniusHits(lyricHits.collected, parsed);
   let scannedPages = lyricHits.scannedPages;
-  let nextFromPage = lyricHits.nextFromPage;
+  let nextFromPage = opts.artistId ? 1 : lyricHits.nextFromPage;
 
   const hasLyricMatch = collected.some(
     (result) => result.snippet && matchQuery(parsed.ast, result.snippet, 0).ok,
   );
   if (opts.artistId && fromPage === 1 && !hasLyricMatch) {
     const skip = new Set(collected.map((result) => result.id));
-    const catalog = await searchArtistCatalog(
-      opts.artistId,
-      parsed,
-      opts.role,
-      skip,
-      catalogPage1 ?? undefined,
-    );
+    const catalog = await searchArtistCatalog(opts.artistId, parsed, opts.role, skip, {
+      firstPage: catalogPage1 ?? undefined,
+      maxPages: CATALOG_PAGES,
+    });
     collected = [...collected, ...catalog.results];
     scannedPages += 1;
     nextFromPage = catalog.nextPage;
