@@ -6,8 +6,8 @@ export default function Home() {
 
   return (
     <main className="home">
-      <h1 className="brand">Lyric Cards</h1>
-      <p className="tagline">Find a line. Make a card.</p>
+      <h1 className="brand">Lyric Search</h1>
+      <p className="tagline">Makes good lyric cards.</p>
       <HomeSearch requireArtist={requireArtist} />
       <footer className="foot">
         Search a line, pick the song, download a PNG. Full songs on{" "}

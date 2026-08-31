@@ -19,8 +19,8 @@ const card = Inter_Tight({
 });
 
 export const metadata: Metadata = {
-  title: "Lyric Cards",
-  description: "Find a lyric line and export a card. Filter by artist, including verses they only feature on.",
+  title: "Lyric Search",
+  description: "Search a lyric line and export a card. Filter by artist, including verses they only feature on.",
   robots: { index: false, follow: false },
 };
 
