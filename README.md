@@ -2,41 +2,22 @@
 
 Live: [genius-lyric-search.vercel.app](https://genius-lyric-search.vercel.app/)
 
-Find a line you remember, then export a card. Genius's search is too fuzzy and has no artist filter, so this exists. Full songs on [genius.com](https://genius.com).
+Find a line, export a PNG. Genius search is too fuzzy and has no artist filter. Full songs stay on [genius.com](https://genius.com). This does not scrape or store Genius lyrics.
 
-Search is how you get to the line. The point is the PNG. It does not scrape or store full Genius lyrics.
+There is no free API that searches **inside** lyrics. Paid ones exist. [lrclib](https://lrclib.net) only looks up words if you already know the song. So Genius is the catalog (songs, credits, art); lrclib is the text.
 
-## Limits
-
-There is no free API I could find that searches **inside** lyrics. Licensed ones (Musixmatch, etc.) do, and they cost money. Everything free is a lookup: you already know the song, then you fetch the words.
-
-So this app splits the job:
-
-- **Genius** is the catalog — which songs exist, who's credited, art, views, the Genius page.
-- **[lrclib](https://lrclib.net)** is the words. Given a title + artist, it returns lyrics if it has them. Its own search is title/artist/album, not lyric text.
-
-**Locally**, Genius's website JSON (`genius.com/api`) can search lyrics. No token. Cloud IPs (Vercel included) get blocked, so production uses the documented developer API (`api.genius.com`). That API has one search endpoint: song **metadata** (title/credits), not lyrics, and no artist-name search.
-
-**On Vercel** you pick an artist. We page their Genius discography, ask lrclib for each song, and grep for the line. That's why it's slower than Genius.com and why an artist is required there. It does not scrape or store full Genius lyrics.
-
-If lrclib doesn't have the song, the card may be thin. Result-list covers are small Genius CDN thumbs; the downloadable card still proxies the full image so the PNG export isn't cross-origin.
-
-## Run it
+Locally, Genius's website API can search lyrics (no token). Cloud IPs block that, so Vercel uses the official API — metadata search only. You pick an artist, we grep their discography. That's why production is slower and needs an artist.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
-Locally it uses Genius's public website search. No token.
-
-Cloud hosts get blocked on that API. Create a client at [genius.com/api-clients](https://genius.com/api-clients) and set:
+[http://localhost:3000](http://localhost:3000). For Vercel, a client from [genius.com/api-clients](https://genius.com/api-clients):
 
 ```
 GENIUS_API=official
 GENIUS_ACCESS_TOKEN=your_client_access_token
 ```
 
-`GENIUS_API=web` forces the website API even if a token is set. That also turns off the artist requirement.
+`GENIUS_API=web` forces the website API even with a token, and drops the artist requirement.
