@@ -10,7 +10,11 @@ export default function Home() {
       <p className="tagline">Makes good lyric cards.</p>
       <HomeSearch requireArtist={requireArtist} />
       <footer className="foot">
-        Search a line, pick the song, download a PNG. Full songs on{" "}
+        Search a line, pick the song, download a PNG. Lyrics from{" "}
+        <a href="https://lrclib.net" target="_blank" rel="noopener noreferrer">
+          lrclib
+        </a>
+        . Full songs on{" "}
         <a href="https://genius.com" target="_blank" rel="noopener noreferrer">
           genius.com
         </a>
