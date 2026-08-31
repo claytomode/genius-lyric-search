@@ -9,7 +9,7 @@ export default function SearchPage() {
   return (
     <main className="shell">
       <header className="site-header">
-        <Link href="/">Lyric Search</Link>
+        <Link href="/">Lyric Cards</Link>
         <a
           className="site-source"
           href="https://github.com/claytomode/genius-lyric-search"

@@ -1,20 +1,25 @@
-# Genius Lyric Search
+# Lyric Cards
 
 Live: [genius-lyric-search.vercel.app](https://genius-lyric-search.vercel.app/)
 
-Genius's fuzzy search is too fuzzy, and there's no simple way to filter by artist. I built this for me and my friends on their public API. Full songs on [genius.com](https://genius.com).
+Find a line you remember, then export a card. Genius's search is too fuzzy and has no artist filter, so this exists. Full songs on [genius.com](https://genius.com).
 
-Search lyric snippets, filter by artist as lead or featured, and make a lyric card. It does not scrape or store full Genius lyrics.
+Search is how you get to the line. The point is the PNG. It does not scrape or store full Genius lyrics.
 
 ## Limits
 
-If we owned the Genius catalog, this would be an elasticsearch index. We don't, so we sit on top of Genius's public search plus [lrclib](https://lrclib.net) excerpts. This is not ideal.
+There is no free API I could find that searches **inside** lyrics. Licensed ones (Musixmatch, etc.) do, and they cost money. Everything free is a lookup: you already know the song, then you fetch the words.
 
-Genius has no artist filter on lyric search. Picking an artist means: search as usual, keep songs they're on, and if that comes up empty, scan their catalog against lrclib. That fallback can be slow the first time.
+So this app splits the job:
 
-Cloud hosts (Vercel included) often can't use Genius's public website search. The official API has no lyric-search endpoint, so production scans one artist's catalog (lead or featured) against lrclib. An artist is required there. Locally the website search usually works with no token and no artist.
+- **Genius** is the catalog — which songs exist, who's credited, art, views, the Genius page.
+- **[lrclib](https://lrclib.net)** is the words. Given a title + artist, it returns lyrics if it has them. Its own search is title/artist/album, not lyric text.
 
-Cards and longer excerpts come from lrclib, not Genius. If lrclib doesn't have the song, the card may be thin. Result-list covers are small Genius CDN thumbs; the downloadable card still proxies the full image so the PNG export isn't cross-origin.
+**Locally**, Genius's website JSON (`genius.com/api`) can search lyrics. No token. Cloud IPs (Vercel included) get blocked, so production uses the documented developer API (`api.genius.com`). That API has one search endpoint: song **metadata** (title/credits), not lyrics, and no artist-name search.
+
+**On Vercel** you pick an artist. We page their Genius discography, ask lrclib for each song, and grep for the line. That's why it's slower than Genius.com and why an artist is required there. It does not scrape or store full Genius lyrics.
+
+If lrclib doesn't have the song, the card may be thin. Result-list covers are small Genius CDN thumbs; the downloadable card still proxies the full image so the PNG export isn't cross-origin.
 
 ## Run it
 
