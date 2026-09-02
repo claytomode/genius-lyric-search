@@ -2,7 +2,7 @@
 
 Live: [genius-lyric-search.vercel.app](https://genius-lyric-search.vercel.app/)
 
-Search a line you remember and export a good lyric card. Genius search is too fuzzy and has no artist filter. Full songs stay on [genius.com](https://genius.com). This does not scrape or store Genius lyrics.
+Search a line you remember and export a good lyric card. Genius's native search is too fuzzy and has no artist filter, so this exists. Full songs stay on [genius.com](https://genius.com) and [lrclib](https://lrclib.net). This does not scrape or store Genius lyrics.
 
 There is no free API that searches **inside** lyrics. Paid ones exist. [lrclib](https://lrclib.net) only looks up words if you already know the song. So Genius is the catalog (songs, credits, art); lrclib is the text.
 
